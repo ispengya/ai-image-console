@@ -22,6 +22,10 @@ server/skills/
 **/.env.*
 !**/.env.example
 
+# 品牌素材的中间候选图与参考原图（仅保留 assets/brand 下最终产物）
+assets/brand/candidates/
+assets/logo.jpg
+
 # 日志与临时文件
 *.log
 .check.js
