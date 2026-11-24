@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
@@ -19,13 +20,18 @@ await app.register(skillRoutes);
 await app.register(imageRoutes);
 await app.register(conversationRoutes);
 
-// 静态托管前端（../index.html 所在目录）
+// 首页显式返回 index.html（避免把整个项目根目录暴露成静态文件）
 const frontendDir = path.resolve(import.meta.dirname, '..', '..');
+const indexHtmlPath = path.join(frontendDir, 'index.html');
+app.get('/', (_req, reply) => {
+  return reply.type('text/html; charset=utf-8').send(fs.createReadStream(indexHtmlPath));
+});
+
+// 静态资源仅托管 assets/ 目录（logo/favicon 等），不放行 server/data 等敏感目录
 await app.register(fastifyStatic, {
-  root: frontendDir,
-  prefix: '/',
+  root: path.join(frontendDir, 'assets'),
+  prefix: '/assets/',
   decorateReply: false,
-  wildcard: false,
 });
 
 app.setErrorHandler((err, _req, reply) => {

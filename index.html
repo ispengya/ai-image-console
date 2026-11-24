@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>图像工作台</title>
+<link rel="icon" type="image/png" sizes="64x64" href="/assets/brand/favicon.png">
+<link rel="apple-touch-icon" href="/assets/brand/logo@128.png">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   :root {
@@ -51,11 +53,10 @@
     border-bottom: 1px solid var(--border); position: relative; z-index: 30;
   }
   .logo {
-    width: 28px; height: 28px; border-radius: 9px;
-    background: linear-gradient(145deg, #3a3a3c, #111113); color: #fff;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 11px; font-weight: 700; letter-spacing: .5px;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 4px 10px rgba(0, 0, 0, .16);
+    width: 30px; height: 30px; border-radius: 9px;
+    display: block; object-fit: cover; object-position: left center;
+    background: #e8e6e1;
+    box-shadow: 0 3px 9px rgba(0, 0, 0, .12);
   }
   header h1 { font-size: 15px; font-weight: 600; letter-spacing: -.2px; }
   .badge {
@@ -87,19 +88,37 @@
   nav .nav-item svg { width: 16px; height: 16px; flex-shrink: 0; }
   nav .nav-new { border: 1px solid var(--border-strong); justify-content: center; color: var(--text-2); font-size: 12px; background: rgba(255, 255, 255, .7); }
   nav .nav-new:hover { border-color: rgba(0, 0, 0, .3); color: var(--text); background: #fff; }
-  nav .conv-list { margin-top: 6px; max-height: calc(100vh - 280px); overflow-y: auto; padding-right: 2px; }
+  nav .conv-list { margin-top: 6px; max-height: calc(100vh - 280px); overflow-y: auto; padding-right: 2px; display: flex; flex-direction: column; gap: 2px; }
   nav .conv-item {
-    position: relative; display: flex; align-items: center; gap: 8px; padding: 8px;
-    border-radius: 10px; cursor: pointer; color: var(--text-2); font-size: 12px; margin-bottom: 3px;
-    transition: background .18s, color .18s, box-shadow .18s;
+    position: relative; display: flex; align-items: center; gap: 9px; padding: 7px 8px;
+    border-radius: 11px; cursor: pointer; color: var(--text-2); font-size: 12px;
+    transition: background .18s, color .18s;
   }
-  nav .conv-item:hover { background: rgba(0, 0, 0, .045); color: var(--text); }
-  nav .conv-item.active { background: linear-gradient(145deg, #2c2c2e, #1c1c1e); color: #fff; box-shadow: 0 4px 12px rgba(0, 0, 0, .16); }
-  nav .conv-item .ci-thumb { width: 24px; height: 24px; border-radius: 7px; object-fit: cover; background: var(--soft); flex-shrink: 0; border: 1px solid var(--border); }
-  nav .conv-item .ci-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  nav .conv-item .ci-del { border: none; background: none; color: inherit; opacity: 0; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; flex-shrink: 0; }
-  nav .conv-item:hover .ci-del, nav .conv-item.active .ci-del { opacity: .6; }
-  nav .conv-item .ci-del:hover { opacity: 1; color: #ff6b6b; }
+  nav .conv-item:hover { background: rgba(0, 0, 0, .05); color: var(--text); }
+  nav .conv-item.active { background: rgba(0, 113, 227, .1); color: var(--accent); font-weight: 500; }
+  nav .conv-item .ci-thumb {
+    width: 30px; height: 30px; border-radius: 8px; object-fit: cover; flex-shrink: 0;
+    border: 1px solid var(--border); background: rgba(0,0,0,.035) center / 15px no-repeat;
+  }
+  nav .conv-item .ci-thumb.ci-placeholder {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a1a1a6' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/%3E%3C/svg%3E");
+  }
+  nav .conv-item .ci-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  nav .conv-item .ci-title { display: block; font-size: 12px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: inherit; }
+  nav .conv-item .ci-sub { display: block; font-size: 10px; line-height: 1.3; color: var(--text-3); }
+  nav .conv-item.active .ci-sub { color: rgba(0, 113, 227, .6); }
+  nav .conv-item .ci-count {
+    flex-shrink: 0; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.055); color: var(--text-2); font-size: 10px; font-family: var(--mono);
+  }
+  nav .conv-item.active .ci-count { background: rgba(0, 113, 227, .14); color: var(--accent); }
+  nav .conv-item .ci-del {
+    border: none; background: none; color: var(--text-3); opacity: 0; cursor: pointer;
+    font-size: 15px; line-height: 1; padding: 2px 3px; flex-shrink: 0; transition: opacity .15s, color .15s;
+  }
+  nav .conv-item:hover .ci-del { opacity: .7; }
+  nav .conv-item .ci-del:hover { opacity: 1; color: #ff3b30; }
   nav .conv-empty { font-size: 11px; color: var(--text-3); padding: 8px 10px; }
 
   /* ---------- 主区 ---------- */
@@ -128,6 +147,28 @@
     align-self: flex-start; background: rgba(255, 255, 255, .92); border: 1px solid var(--border);
     border-bottom-left-radius: 6px; box-shadow: var(--shadow-sm); color: var(--text);
   }
+  /* Markdown 渲染样式（仅 bot 消息） */
+  .msg.bot .md-p { white-space: pre-wrap; }
+  .msg.bot .md-gap { height: 8px; }
+  .msg.bot .md-h { font-weight: 600; line-height: 1.4; margin: 6px 0 3px; }
+  .msg.bot .md-h:first-child { margin-top: 0; }
+  .msg.bot h1.md-h { font-size: 16px; }
+  .msg.bot h2.md-h { font-size: 15px; }
+  .msg.bot h3.md-h { font-size: 14px; }
+  .msg.bot h4.md-h { font-size: 13.5px; }
+  .msg.bot .md-list { margin: 5px 0 5px 2px; padding-left: 20px; }
+  .msg.bot .md-list li { margin: 2px 0; padding-left: 2px; }
+  .msg.bot .md-code {
+    font-family: var(--mono); font-size: 12px; padding: 1px 5px; border-radius: 5px;
+    background: rgba(0, 0, 0, .06); color: #c7254e;
+  }
+  .msg.bot .md-pre {
+    margin: 8px 0; padding: 11px 13px; border-radius: 10px; overflow-x: auto;
+    background: #f5f5f7; border: 1px solid var(--border); white-space: pre;
+  }
+  .msg.bot .md-pre code { font-family: var(--mono); font-size: 12px; line-height: 1.6; color: var(--text-2); }
+  .msg.bot strong { font-weight: 600; }
+  .msg.bot del { color: var(--text-3); }
   .msg.tool {
     align-self: stretch; max-width: 100%; background: rgba(255, 255, 255, .78);
     border: 1px solid var(--border); border-radius: 14px; padding: 0; overflow: hidden; box-shadow: var(--shadow-sm);
@@ -328,26 +369,35 @@
   /* 点击图片放大预览 */
   .msg.imgmsg img, .msg.user .u-img, .card .thumb img { cursor: zoom-in; }
   .lightbox {
-    position: fixed; inset: 0; z-index: 9999; display: none; align-items: center; justify-content: center;
-    padding: 48px; background: rgba(12, 12, 14, .74);
-    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
-    animation: lbIn .2s ease both;
+    position: fixed; inset: 0; z-index: 9999; display: none;
+    flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    padding: 32px 40px; background: rgba(12, 12, 14, .82);
+    -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+    animation: lbIn .2s ease both; overflow-y: auto;
   }
   @keyframes lbIn { from { opacity: 0; } to { opacity: 1; } }
   .lightbox.show { display: flex; }
-  .lightbox img { max-width: min(94vw, 1400px); max-height: 84vh; object-fit: contain; border-radius: 18px; background: #fff; box-shadow: 0 24px 70px rgba(0, 0, 0, .45); }
+  .lb-stage { display: flex; align-items: center; justify-content: center; min-height: 0; flex: 0 1 auto; width: 100%; }
+  .lightbox img {
+    max-width: min(92vw, 1200px); max-height: calc(100vh - 210px);
+    object-fit: contain; border-radius: 16px; background: #fff;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, .5); display: block;
+  }
   .lb-close {
     position: absolute; top: 20px; right: 26px; width: 38px; height: 38px;
     border: 1px solid rgba(255, 255, 255, .3); border-radius: 50%;
     background: rgba(255, 255, 255, .12); color: #fff; font-size: 22px; line-height: 1;
     cursor: pointer; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); transition: background .18s;
+    z-index: 2;
   }
   .lb-close:hover { background: rgba(255, 255, 255, .25); }
   .lb-cap {
-    position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-    max-width: 90vw; padding: 6px 14px; border-radius: 999px;
-    background: rgba(0, 0, 0, .35); color: #f5f5f7; font-size: 11.5px; text-align: center; line-height: 1.5;
+    flex: 0 0 auto; width: min(92vw, 1200px); max-height: 110px; overflow-y: auto;
+    padding: 11px 16px; border-radius: 12px; word-break: break-word;
+    background: rgba(255, 255, 255, .09); border: 1px solid rgba(255, 255, 255, .1);
+    color: #e8e8ed; font-size: 12px; line-height: 1.6; white-space: pre-wrap;
   }
+  .lb-cap:empty { display: none; }
 
   @media (max-width: 1080px) {
     main { flex-direction: column; }
@@ -361,7 +411,7 @@
 <body>
 
 <header>
-  <div class="logo">IC</div>
+  <img class="logo" src="/assets/brand/logo.png" alt="图像工作台" draggable="false">
   <h1>图像工作台</h1>
   <div class="badge"><span class="dot" id="badge-dot"></span><span id="badge-text">连接中…</span></div>
 </header>
@@ -612,7 +662,7 @@
 <!-- 图片大图预览 -->
 <div class="lightbox" id="lightbox" aria-hidden="true">
   <button class="lb-close" id="lb-close" type="button" title="关闭预览">×</button>
-  <img id="lb-img" src="" alt="">
+  <div class="lb-stage"><img id="lb-img" src="" alt=""></div>
   <div class="lb-cap" id="lb-cap"></div>
 </div>
 
@@ -633,6 +683,50 @@ var SKILLS = [];
 function $(id){ return document.getElementById(id); }
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; });
+}
+
+/* 轻量 Markdown 渲染：先整体转义防 XSS，再处理行内与块级语法 */
+function renderMarkdown(text){
+  var s = escapeHtml(text == null ? '' : String(text));
+  // 代码块 ``` ... ```
+  s = s.replace(/```([\s\S]*?)```/g, function(_, code){
+    return '<pre class="md-pre"><code>' + code.replace(/^\n/, '').replace(/\n$/, '') + '</code></pre>';
+  });
+  var lines = s.split('\n');
+  var out = [], i = 0;
+  function inline(str){
+    return str
+      .replace(/`([^`]+)`/g, '<code class="md-code">$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
+      .replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  }
+  while (i < lines.length) {
+    var line = lines[i];
+    // 无序列表
+    if (/^\s*[-*+]\s+/.test(line)) {
+      var items = [];
+      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
+        items.push('<li>' + inline(lines[i].replace(/^\s*[-*+]\s+/, '')) + '</li>'); i++;
+      }
+      out.push('<ul class="md-list">' + items.join('') + '</ul>'); continue;
+    }
+    // 有序列表
+    if (/^\s*\d+\.\s+/.test(line)) {
+      var oitems = [];
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+        oitems.push('<li>' + inline(lines[i].replace(/^\s*\d+\.\s+/, '')) + '</li>'); i++;
+      }
+      out.push('<ol class="md-list">' + oitems.join('') + '</ol>'); continue;
+    }
+    // 标题
+    var h = line.match(/^(#{1,4})\s+(.*)$/);
+    if (h) { var lv = h[1].length; out.push('<h' + lv + ' class="md-h">' + inline(h[2]) + '</h' + lv + '>'); i++; continue; }
+    // 空行
+    if (!line.trim()) { out.push('<div class="md-gap"></div>'); i++; continue; }
+    out.push('<div class="md-p">' + inline(line) + '</div>'); i++;
+  }
+  return out.join('');
 }
 
 /* ================= 生成设置 ================= */
@@ -891,10 +985,10 @@ async function agentRespond(text, uploadSnapshot, slash){
           case 'text':
             ensureBotText();
             botText += ev.delta;
-            botTextMsg.textContent = botText;
+            botTextMsg.textContent = botText; // 流式期间保持纯文本，结束后统一渲染 Markdown
             break;
           case 'error':
-            addMsg('bot', '错误 [' + ev.code + ']：' + ev.message);
+            addMsg('bot', renderMarkdown('错误 [' + ev.code + ']：' + ev.message));
             break;
           case 'done':
             if (statusMsg) statusMsg.remove();
@@ -905,6 +999,7 @@ async function agentRespond(text, uploadSnapshot, slash){
         }
       }
     }
+    if (botTextMsg && botText.trim()) botTextMsg.innerHTML = renderMarkdown(botText);
     if (botText) convMessages.push({ role: 'assistant', content: botText });
     if (uploadSnapshot) clearAttach();
   } catch (err) {
@@ -918,21 +1013,45 @@ async function agentRespond(text, uploadSnapshot, slash){
 }
 
 /* ================= 附件（上传待编辑图片） ================= */
-$('btn-attach').addEventListener('click', function(){ $('file-input').click(); });
-$('file-input').addEventListener('change', function(e){
-  var file = e.target.files[0];
-  if (!file) return;
+function attachFile(file){
+  if (!file || !/^image\//.test(file.type || '')) return false;
   var reader = new FileReader();
   reader.onload = function(ev){
-    chatUpload = { dataURL: ev.target.result, name: file.name, mimeType: file.type || 'image/png' };
+    chatUpload = { dataURL: ev.target.result, name: file.name || 'pasted-image.png', mimeType: file.type || 'image/png' };
     $('attach-thumb').src = chatUpload.dataURL;
-    $('attach-name').textContent = file.name;
+    $('attach-name').textContent = chatUpload.name;
     $('attach-chip').classList.add('show');
     $('chat-input').placeholder = '原图已就绪，说明修改要求（如：把背景换成星空）';
     $('chat-input').focus();
   };
   reader.readAsDataURL(file);
+  return true;
+}
+$('btn-attach').addEventListener('click', function(){ $('file-input').click(); });
+$('file-input').addEventListener('change', function(e){
+  var file = e.target.files[0];
+  if (file) attachFile(file);
   e.target.value = '';
+});
+// 直接把截图/图片粘贴进输入框
+$('chat-input').addEventListener('paste', function(e){
+  var items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i];
+    if (item.kind === 'file' && /^image\//.test(item.type || '')) {
+      e.preventDefault();
+      attachFile(item.getAsFile());
+      return;
+    }
+  }
+});
+// 拖放图片到对话区也能添加
+$('chat-msgs').addEventListener('dragover', function(e){ e.preventDefault(); });
+$('chat-msgs').addEventListener('drop', function(e){
+  if (!e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return;
+  e.preventDefault();
+  attachFile(e.dataTransfer.files[0]);
 });
 function clearAttach(){
   chatUpload = null;
@@ -1189,10 +1308,14 @@ function renderConversations(){
   if (!conversations.length) { el.innerHTML = '<div class="conv-empty">还没有会话，点上方新建</div>'; return; }
   el.innerHTML = conversations.map(function(c){
     var active = c.id === currentConvId ? ' active' : '';
-    var thumb = c.thumbUrl ? '<img class="ci-thumb" src="' + c.thumbUrl + '" alt="">' : '<span class="ci-thumb"></span>';
-    var cnt = c.imageCount ? '<span style="opacity:.6;font-size:11px;">' + c.imageCount + '</span>' : '';
+    var thumb = c.thumbUrl
+      ? '<img class="ci-thumb" src="' + c.thumbUrl + '" alt="">'
+      : '<span class="ci-thumb ci-placeholder"></span>';
+    var cnt = c.imageCount ? '<span class="ci-count">' + c.imageCount + '</span>' : '';
+    var sub = c.imageCount ? c.imageCount + ' 张图片' : '空会话';
     return '<div class="conv-item' + active + '" data-id="' + c.id + '" title="' + escapeHtml(c.title) + '">' +
-      thumb + '<span class="ci-title">' + escapeHtml(c.title) + '</span>' + cnt +
+      thumb + '<span class="ci-body"><span class="ci-title">' + escapeHtml(c.title) + '</span>' +
+      '<span class="ci-sub">' + sub + '</span></span>' + cnt +
       '<button class="ci-del" data-del="' + c.id + '" title="删除会话">×</button></div>';
   }).join('');
   el.querySelectorAll('.conv-item').forEach(function(item){
@@ -1273,7 +1396,7 @@ function renderStoredMessages(msgs, imageById){
       return;
     }
     if (m.content) {
-      addMsg('bot', escapeHtml(m.content));
+      addMsg('bot', renderMarkdown(m.content));
       convMessages.push({ role: 'assistant', content: m.content });
     }
     (m.imageIds || []).forEach(function(id){
