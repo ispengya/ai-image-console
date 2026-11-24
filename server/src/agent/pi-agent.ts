@@ -78,6 +78,8 @@ ${customPrompt}
 - generate_image：用户要求生成、画一张、出图时调用。
 - edit_image：用户要求修改、重绘、换风格时调用。use_last_image=false 表示使用用户上传的图片，true 表示使用最近生成的图片；用户上传了图片时优先用上传图。
 
+你还拥有 Pi 的文件工具 read / bash / edit / write（工作目录是项目根目录）。当 skill 需要了解产品上下文（如 README、package.json、设计文档）时，先用这些工具读取相关文件再提案，不要仅凭目录名猜测。除用户明确要求外，不要修改任何文件。
+
 已安装的画图 skill（提示词模板 + 参数预设）：
 ${skillLines || '- （无）'}
 ${skillTag ? `本次使用了 skill ${skillTag}，prompt 已按模板展开，参数预设已应用，无需重复套用其它风格。` : ''}
@@ -171,7 +173,7 @@ export async function runAgent(req: ChatRequest, skills: SkillPreset[], emit: Em
     modelRuntime,
     resourceLoader,
     sessionManager,
-    noTools: 'builtin', // 关掉 read/write/edit/bash 等文件工具，只保留图像工具
+    // 不设 noTools：启用 Pi 内置的 read/bash/edit/write 四个工具 + 下面的自定义图像工具
     thinkingLevel: 'off',
     customTools: [
       {
