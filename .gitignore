@@ -1,0 +1,28 @@
+# 依赖
+node_modules/
+
+# 构建产物（clone 后 npm run build 生成）
+dist/
+
+# 运行时数据：含真实 API Key 的 runtime-config.json，绝对禁止上传
+server/data/
+*.sqlite
+
+# 生成的图片产物与上传原图
+server/outputs/
+
+# 项目自有 skills（本地安装，不随源码上传）
+server/skills/
+
+# 环境变量（保留 .env.example 模板）
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# 日志与临时文件
+*.log
+.check.js
+.DS_Store

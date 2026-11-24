@@ -1,0 +1,12 @@
+{
+  "name": "ai-image-console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI 图片生成控制台 - 根目录代理脚本，实际项目在 server/",
+  "scripts": {
+    "dev": "npm --prefix server run dev",
+    "build": "npm --prefix server run build",
+    "start": "npm --prefix server run start",
+    "typecheck": "npm --prefix server run typecheck"
+  }
+}

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+data/
+outputs/*.png
+outputs/*.jpg
+outputs/*.webp
+outputs/*.sqlite
+*.log

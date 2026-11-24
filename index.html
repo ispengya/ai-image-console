@@ -1,0 +1,1338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图像工作台</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #f5f5f7;
+    --panel: rgba(255, 255, 255, .86);
+    --panel-solid: #ffffff;
+    --border: rgba(0, 0, 0, .075);
+    --border-strong: rgba(0, 0, 0, .14);
+    --text: #1d1d1f;
+    --text-2: #6e6e73;
+    --text-3: #a1a1a6;
+    --ink: #1d1d1f;
+    --ink-hover: #3a3a3c;
+    --soft: rgba(0, 0, 0, .035);
+    --accent: #0071e3;
+    --mono: "SFMono-Regular", ui-monospace, Consolas, "Liberation Mono", monospace;
+    --radius: 18px;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, .04);
+    --shadow: 0 8px 30px rgba(0, 0, 0, .06), 0 1px 3px rgba(0, 0, 0, .04);
+  }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+    color: var(--text); font-size: 14px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+    letter-spacing: -.01em;
+    background:
+      radial-gradient(1100px 520px at 85% -12%, rgba(0, 113, 227, .07), transparent 62%),
+      radial-gradient(900px 480px at -8% 18%, rgba(138, 86, 240, .055), transparent 60%),
+      linear-gradient(180deg, #fbfbfd 0%, #f5f5f7 100%);
+    background-attachment: fixed;
+  }
+  button, input, textarea, select { font-family: inherit; }
+  ::selection { background: rgba(0, 113, 227, .18); }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, .14); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, .24); background-clip: padding-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ---------- 顶栏 ---------- */
+  header {
+    height: 56px; display: flex; align-items: center; gap: 12px; padding: 0 22px;
+    background: rgba(250, 250, 252, .72);
+    -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid var(--border); position: relative; z-index: 30;
+  }
+  .logo {
+    width: 28px; height: 28px; border-radius: 9px;
+    background: linear-gradient(145deg, #3a3a3c, #111113); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; letter-spacing: .5px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 4px 10px rgba(0, 0, 0, .16);
+  }
+  header h1 { font-size: 15px; font-weight: 600; letter-spacing: -.2px; }
+  .badge {
+    margin-left: auto; display: flex; align-items: center; gap: 7px;
+    font-size: 11.5px; color: var(--text-2); border: 1px solid var(--border);
+    background: rgba(255, 255, 255, .7); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    padding: 5px 11px; border-radius: 999px; font-family: var(--mono); box-shadow: var(--shadow-sm);
+  }
+  .badge .dot { width: 7px; height: 7px; border-radius: 50%; background: #34c759; box-shadow: 0 0 0 3px rgba(52, 199, 89, .14); }
+
+  .layout { display: flex; height: calc(100vh - 56px); }
+
+  /* ---------- 左侧导航 ---------- */
+  nav {
+    width: 166px; flex-shrink: 0; padding: 14px 10px;
+    background: rgba(255, 255, 255, .55);
+    -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+    border-right: 1px solid var(--border); overflow-y: auto;
+  }
+  nav .group-label { font-size: 10.5px; color: var(--text-3); padding: 8px 10px 6px; letter-spacing: .06em; text-transform: uppercase; }
+  nav .nav-item {
+    display: flex; align-items: center; gap: 10px; padding: 9px 11px;
+    border-radius: 10px; cursor: pointer; color: var(--text-2); font-size: 13px; margin-bottom: 2px;
+    transition: background .18s, color .18s, transform .18s;
+  }
+  nav .nav-item:hover { background: rgba(0, 0, 0, .045); color: var(--text); }
+  nav .nav-item.active { background: rgba(0, 0, 0, .07); color: var(--text); font-weight: 600; }
+  nav .nav-item:active { transform: scale(.985); }
+  nav .nav-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+  nav .nav-new { border: 1px solid var(--border-strong); justify-content: center; color: var(--text-2); font-size: 12px; background: rgba(255, 255, 255, .7); }
+  nav .nav-new:hover { border-color: rgba(0, 0, 0, .3); color: var(--text); background: #fff; }
+  nav .conv-list { margin-top: 6px; max-height: calc(100vh - 280px); overflow-y: auto; padding-right: 2px; }
+  nav .conv-item {
+    position: relative; display: flex; align-items: center; gap: 8px; padding: 8px;
+    border-radius: 10px; cursor: pointer; color: var(--text-2); font-size: 12px; margin-bottom: 3px;
+    transition: background .18s, color .18s, box-shadow .18s;
+  }
+  nav .conv-item:hover { background: rgba(0, 0, 0, .045); color: var(--text); }
+  nav .conv-item.active { background: linear-gradient(145deg, #2c2c2e, #1c1c1e); color: #fff; box-shadow: 0 4px 12px rgba(0, 0, 0, .16); }
+  nav .conv-item .ci-thumb { width: 24px; height: 24px; border-radius: 7px; object-fit: cover; background: var(--soft); flex-shrink: 0; border: 1px solid var(--border); }
+  nav .conv-item .ci-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  nav .conv-item .ci-del { border: none; background: none; color: inherit; opacity: 0; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; flex-shrink: 0; }
+  nav .conv-item:hover .ci-del, nav .conv-item.active .ci-del { opacity: .6; }
+  nav .conv-item .ci-del:hover { opacity: 1; color: #ff6b6b; }
+  nav .conv-empty { font-size: 11px; color: var(--text-3); padding: 8px 10px; }
+
+  /* ---------- 主区 ---------- */
+  main { flex: 1; padding: 20px; display: flex; gap: 20px; min-width: 0; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px);
+  }
+  .chat-panel { width: 620px; flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .results { flex: 1; padding: 20px; overflow-y: auto; min-width: 0; }
+
+  /* ---------- 对话 ---------- */
+  .chat-msgs { flex: 1; overflow-y: auto; padding: 22px; display: flex; flex-direction: column; gap: 14px; }
+  .msg {
+    max-width: 84%; padding: 11px 15px; border-radius: 18px;
+    line-height: 1.62; font-size: 13.5px; white-space: pre-wrap; word-break: break-word;
+    animation: msgIn .28s ease both;
+  }
+  @keyframes msgIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .msg.user {
+    align-self: flex-end; background: linear-gradient(145deg, #2f2f32, #1c1c1e); color: #fff;
+    border-bottom-right-radius: 6px; box-shadow: 0 6px 18px rgba(0, 0, 0, .14);
+  }
+  .msg.user .u-img { display: block; max-width: 190px; border-radius: 12px; margin-top: 8px; }
+  .msg.bot {
+    align-self: flex-start; background: rgba(255, 255, 255, .92); border: 1px solid var(--border);
+    border-bottom-left-radius: 6px; box-shadow: var(--shadow-sm); color: var(--text);
+  }
+  .msg.tool {
+    align-self: stretch; max-width: 100%; background: rgba(255, 255, 255, .78);
+    border: 1px solid var(--border); border-radius: 14px; padding: 0; overflow: hidden; box-shadow: var(--shadow-sm);
+  }
+  .msg.tool .t-head {
+    display: flex; align-items: center; gap: 8px; padding: 9px 14px;
+    border-bottom: 1px solid var(--border); font-size: 11.5px; color: var(--text-2);
+    font-family: var(--mono); background: rgba(0, 0, 0, .02);
+  }
+  .msg.tool .t-head .fn { color: var(--text); font-weight: 600; }
+  .msg.tool .t-head .skill-tag { font-size: 10.5px; border: 1px solid var(--border-strong); border-radius: 6px; padding: 1px 6px; color: var(--text-2); background: #fff; }
+  .msg.tool .t-status { margin-left: auto; font-size: 10.5px; color: #b45309; }
+  .msg.tool .t-status.ok { color: #248a3d; }
+  .msg.tool pre { padding: 12px 14px; font-family: var(--mono); font-size: 11.5px; line-height: 1.65; color: var(--text-2); overflow-x: auto; white-space: pre; }
+  .msg.imgmsg { align-self: flex-start; background: none; padding: 0; border: none; box-shadow: none; max-width: 100%; }
+  .msg.imgmsg .imgs { display: flex; flex-wrap: wrap; gap: 8px; }
+  .msg.imgmsg img {
+    border-radius: 14px; display: block; width: 100%; max-width: 340px;
+    border: 1px solid var(--border); box-shadow: var(--shadow-sm);
+    transition: transform .25s ease, box-shadow .25s ease;
+  }
+  .msg.imgmsg img:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(0, 0, 0, .1); }
+  .msg.imgmsg .imgs.multi img { width: calc(50% - 4px); max-width: 210px; }
+  .msg.imgmsg .cap { font-size: 11px; color: var(--text-3); padding: 7px 2px 0; font-family: var(--mono); line-height: 1.5; }
+  .typing { display: inline-flex; gap: 4px; align-items: center; height: 18px; }
+  .typing i { width: 5px; height: 5px; border-radius: 50%; background: var(--text-3); animation: tbounce 1s infinite; }
+  .typing i:nth-child(2) { animation-delay: .15s; }
+  .typing i:nth-child(3) { animation-delay: .3s; }
+  @keyframes tbounce { 0%, 80%, 100% { opacity: .3; } 40% { opacity: 1; } }
+
+  /* ---------- 底部输入区 ---------- */
+  .chat-foot { border-top: 1px solid var(--border); padding: 14px 18px 16px; position: relative; background: rgba(255, 255, 255, .55); }
+
+  /* 生成设置（可折叠） */
+  .settings { display: none; border: 1px solid var(--border); border-radius: 14px; margin-bottom: 12px; overflow: hidden; background: rgba(255, 255, 255, .8); }
+  .settings.open { display: block; }
+  .settings .s-head { display: flex; align-items: center; padding: 10px 14px; background: rgba(0, 0, 0, .028); font-size: 12px; font-weight: 600; color: var(--text-2); }
+  .settings .s-head .s-note { margin-left: auto; font-weight: 400; color: var(--text-3); font-size: 10.5px; }
+  .settings .s-body { padding: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+  .s-field .f-label { font-size: 11.5px; color: var(--text-2); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: baseline; }
+  .s-field .f-label .f-val { font-family: var(--mono); font-size: 11px; color: var(--text); }
+  .s-field select, .s-field input[type="text"] {
+    width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px;
+    font-size: 12.5px; font-family: inherit; color: var(--text); background: rgba(255, 255, 255, .9);
+    outline: none; transition: border-color .18s, box-shadow .18s;
+  }
+  .s-field select:focus, .s-field input[type="text"]:focus { border-color: rgba(0, 113, 227, .6); box-shadow: 0 0 0 3px rgba(0, 113, 227, .12); }
+  .s-field input.mono { font-family: var(--mono); }
+  .seg { display: flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: #fff; }
+  .seg button {
+    flex: 1; padding: 7px 0; background: transparent; border: none; font-size: 11.5px;
+    color: var(--text-2); cursor: pointer; border-right: 1px solid var(--border);
+    font-family: var(--mono); transition: background .18s, color .18s;
+  }
+  .seg button:last-child { border-right: none; }
+  .seg button:hover { background: rgba(0, 0, 0, .04); }
+  .seg button.on { background: linear-gradient(145deg, #2f2f32, #1c1c1e); color: #fff; }
+  .stepper { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; width: fit-content; background: #fff; }
+  .stepper button { width: 30px; height: 32px; border: none; background: transparent; font-size: 15px; cursor: pointer; color: var(--text-2); transition: background .18s; }
+  .stepper button:hover { background: rgba(0, 0, 0, .05); }
+  .stepper span { min-width: 38px; text-align: center; font-size: 12.5px; font-family: var(--mono); }
+  input[type="range"] { width: 100%; accent-color: var(--ink); height: 30px; }
+  input[type="range"]:disabled { accent-color: var(--border-strong); cursor: not-allowed; }
+  .size-row { display: flex; gap: 8px; align-items: center; }
+  .size-row select { flex: 1; }
+  .ratio-box { width: 46px; height: 34px; border: 1px solid var(--border); border-radius: 9px; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, .8); flex-shrink: 0; }
+  .ratio-inner { background: #fff; border: 1.5px solid var(--ink); border-radius: 3px; transition: all .2s; }
+
+  /* / skill 弹出列表 */
+  .slash-popup {
+    display: none; position: absolute; left: 18px; right: 18px; bottom: calc(100% - 12px);
+    background: rgba(255, 255, 255, .96); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px);
+    border: 1px solid var(--border-strong); border-radius: 14px; overflow: hidden; z-index: 20;
+    max-height: 280px; overflow-y: auto; box-shadow: 0 18px 50px rgba(0, 0, 0, .14);
+    animation: popIn .18s ease both;
+  }
+  @keyframes popIn { from { opacity: 0; transform: translateY(6px) scale(.99); } to { opacity: 1; transform: none; } }
+  .slash-popup.show { display: block; }
+  .slash-popup .sp-head { padding: 8px 14px; font-size: 11px; color: var(--text-3); border-bottom: 1px solid var(--border); font-family: var(--mono); }
+  .sp-item { display: flex; align-items: baseline; gap: 10px; padding: 9px 14px; cursor: pointer; }
+  .sp-item:hover, .sp-item.active { background: rgba(0, 0, 0, .045); }
+  .sp-item .sp-name { font-family: var(--mono); font-size: 12.5px; color: var(--text); font-weight: 500; flex-shrink: 0; }
+  .sp-item .sp-desc { font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sp-empty { padding: 14px 14px; font-size: 12px; color: var(--text-3); }
+
+  /* 附件 chip */
+  .attach-chip {
+    display: none; align-items: center; gap: 10px; border: 1px solid var(--border);
+    border-radius: 12px; padding: 8px 10px; margin-bottom: 12px; background: rgba(255, 255, 255, .8);
+  }
+  .attach-chip.show { display: flex; }
+  .attach-chip img { width: 38px; height: 38px; object-fit: cover; border-radius: 9px; }
+  .attach-chip .a-name { flex: 1; font-size: 12.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); }
+  .attach-chip .a-tag { font-size: 11px; color: var(--text-2); border: 1px solid var(--border); border-radius: 6px; padding: 2px 7px; background: rgba(0, 0, 0, .03); flex-shrink: 0; }
+  .attach-chip .a-remove { border: none; background: none; font-size: 15px; color: var(--text-3); cursor: pointer; flex-shrink: 0; padding: 0 2px; }
+  .attach-chip .a-remove:hover { color: #ff3b30; }
+
+  /* 输入行 */
+  .input-box {
+    border: 1px solid var(--border-strong); border-radius: 16px; padding: 9px 10px;
+    display: flex; gap: 6px; align-items: flex-end; background: rgba(255, 255, 255, .92);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, .03), 0 1px 2px rgba(0, 0, 0, .03);
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .input-box:focus-within { border-color: rgba(0, 113, 227, .55); box-shadow: 0 0 0 4px rgba(0, 113, 227, .1), inset 0 1px 2px rgba(0, 0, 0, .02); }
+  .input-box textarea {
+    flex: 1; border: none; outline: none; resize: none; min-height: 24px; max-height: 120px;
+    font-size: 13.5px; font-family: inherit; color: var(--text); line-height: 1.5;
+    padding: 4px 5px; background: transparent;
+  }
+  .icon-btn {
+    width: 34px; height: 34px; border: none; background: transparent; border-radius: 10px;
+    color: var(--text-2); cursor: pointer; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: background .18s, color .18s;
+  }
+  .icon-btn:hover, .icon-btn.active { background: rgba(0, 0, 0, .055); color: var(--text); }
+  .icon-btn svg { width: 18px; height: 18px; }
+  .btn-send {
+    width: 34px; height: 34px; border: none; background: linear-gradient(145deg, #2f2f32, #161618);
+    color: #fff; border-radius: 11px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; box-shadow: 0 4px 10px rgba(0, 0, 0, .18); transition: transform .18s, box-shadow .18s;
+  }
+  .btn-send:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0, 0, 0, .24); }
+  .btn-send:active { transform: scale(.94); }
+  .btn-send:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+  .btn-send svg { width: 15px; height: 15px; }
+  .foot-hint { margin-top: 9px; font-size: 10.5px; color: var(--text-3); display: flex; justify-content: space-between; font-family: var(--mono); }
+  .foot-hint .cur { color: var(--text-2); }
+
+  /* ---------- 右侧：画廊 & skill 库 ---------- */
+  .results h2 { font-size: 16px; font-weight: 650; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; letter-spacing: -.3px; }
+  .results h2 .count { font-size: 11px; color: var(--text-3); font-weight: 400; font-family: var(--mono); }
+  .empty { border: 1px dashed var(--border-strong); border-radius: 16px; padding: 64px 20px; text-align: center; color: var(--text-3); font-size: 12.5px; line-height: 1.8; background: rgba(255, 255, 255, .4); }
+  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; }
+  .card {
+    border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: rgba(255, 255, 255, .9);
+    box-shadow: var(--shadow-sm); transition: transform .22s ease, box-shadow .22s ease;
+  }
+  .card:hover { transform: translateY(-3px); box-shadow: 0 12px 28px rgba(0, 0, 0, .1); }
+  .card .thumb { aspect-ratio: 1; background: var(--soft); overflow: hidden; }
+  .card .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .35s ease; }
+  .card:hover .thumb img { transform: scale(1.04); }
+  .card .meta { padding: 9px 11px; font-size: 10.5px; color: var(--text-3); font-family: var(--mono); }
+  .card .meta .p { color: var(--text-2); font-family: inherit; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 3px; }
+
+  /* skill 卡片 */
+  .skill-card {
+    border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; margin-bottom: 12px;
+    background: rgba(255, 255, 255, .85); box-shadow: var(--shadow-sm);
+    transition: transform .2s ease, box-shadow .2s ease;
+  }
+  .skill-card:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0, 0, 0, .07); }
+  .skill-card.off { opacity: .55; }
+  .skill-card .sk-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .skill-card .sk-name { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+  .skill-card .sk-label { font-size: 12.5px; color: var(--text); margin-bottom: 2px; }
+  .skill-card .sk-desc { font-size: 12px; color: var(--text-2); line-height: 1.5; margin-bottom: 6px; }
+  .skill-card .sk-ov { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+  .skill-card .sk-ov span { font-family: var(--mono); font-size: 10.5px; border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; color: var(--text-2); background: rgba(0, 0, 0, .025); }
+  .skill-card .sk-src { font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+  .switch { position: relative; width: 34px; height: 20px; flex-shrink: 0; }
+  .set-field .switch { display: inline-block; vertical-align: middle; }
+  .switch input { display: none; }
+  .switch .sl { position: absolute; inset: 0; background: #d2d2d7; border-radius: 999px; cursor: pointer; transition: background .2s; }
+  .switch .sl::after { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: #fff; top: 2px; left: 2px; box-shadow: 0 1px 3px rgba(0, 0, 0, .2); transition: transform .2s; }
+  .switch input:checked + .sl { background: #34c759; }
+  .switch input:checked + .sl::after { transform: translateX(14px); }
+
+  /* 设置视图 */
+  .set-group { border: 1px solid var(--border); border-radius: 16px; margin-bottom: 14px; overflow: hidden; background: rgba(255, 255, 255, .7); box-shadow: var(--shadow-sm); }
+  .set-gtitle { padding: 11px 14px; background: rgba(0, 0, 0, .028); font-size: 12px; font-weight: 600; color: var(--text-2); border-bottom: 1px solid var(--border); }
+  .set-body { padding: 16px; }
+  .set-field { display: block; margin-bottom: 14px; }
+  .set-field:last-child { margin-bottom: 0; }
+  .set-field .f-label { font-size: 12px; color: var(--text-2); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+  .set-field .f-label .hint { font-size: 11px; color: var(--text-3); }
+  .set-field input[type="text"], .set-field input[type="password"], .set-field select, .set-field textarea {
+    width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; font-size: 12.5px;
+    font-family: inherit; color: var(--text); background: rgba(255, 255, 255, .92); outline: none;
+    transition: border-color .18s, box-shadow .18s;
+  }
+  .set-field textarea { resize: vertical; min-height: 70px; line-height: 1.6; }
+  .set-field input:focus, .set-field select:focus, .set-field textarea:focus { border-color: rgba(0, 113, 227, .6); box-shadow: 0 0 0 3px rgba(0, 113, 227, .12); }
+  .set-field .mono { font-family: var(--mono); }
+  .key-row { display: flex; gap: 6px; }
+  .key-row input { flex: 1; }
+  .key-row button { border: 1px solid var(--border); background: rgba(255, 255, 255, .9); border-radius: 10px; padding: 0 11px; font-size: 12px; color: var(--text-2); cursor: pointer; transition: border-color .18s, background .18s; }
+  .key-row button:hover { border-color: rgba(0, 0, 0, .3); background: #fff; }
+  .set-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+  .set-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+  .btn-outline { border: 1px solid var(--border-strong); background: rgba(255, 255, 255, .9); border-radius: 10px; padding: 8px 15px; font-size: 12.5px; cursor: pointer; color: var(--text); transition: border-color .18s, background .18s, transform .18s; }
+  .btn-outline:hover { background: #fff; border-color: rgba(0, 0, 0, .25); transform: translateY(-1px); }
+  .btn-solid { border: 1px solid transparent; background: linear-gradient(145deg, #2f2f32, #161618); color: #fff; border-radius: 10px; padding: 8px 16px; font-size: 12.5px; cursor: pointer; box-shadow: 0 4px 10px rgba(0, 0, 0, .14); transition: transform .18s, box-shadow .18s; }
+  .btn-solid:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0, 0, 0, .2); }
+  .set-status { margin-left: auto; font-size: 11px; color: var(--text-3); font-family: var(--mono); }
+  .set-status.ok { color: #248a3d; }
+
+  /* 点击图片放大预览 */
+  .msg.imgmsg img, .msg.user .u-img, .card .thumb img { cursor: zoom-in; }
+  .lightbox {
+    position: fixed; inset: 0; z-index: 9999; display: none; align-items: center; justify-content: center;
+    padding: 48px; background: rgba(12, 12, 14, .74);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    animation: lbIn .2s ease both;
+  }
+  @keyframes lbIn { from { opacity: 0; } to { opacity: 1; } }
+  .lightbox.show { display: flex; }
+  .lightbox img { max-width: min(94vw, 1400px); max-height: 84vh; object-fit: contain; border-radius: 18px; background: #fff; box-shadow: 0 24px 70px rgba(0, 0, 0, .45); }
+  .lb-close {
+    position: absolute; top: 20px; right: 26px; width: 38px; height: 38px;
+    border: 1px solid rgba(255, 255, 255, .3); border-radius: 50%;
+    background: rgba(255, 255, 255, .12); color: #fff; font-size: 22px; line-height: 1;
+    cursor: pointer; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); transition: background .18s;
+  }
+  .lb-close:hover { background: rgba(255, 255, 255, .25); }
+  .lb-cap {
+    position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+    max-width: 90vw; padding: 6px 14px; border-radius: 999px;
+    background: rgba(0, 0, 0, .35); color: #f5f5f7; font-size: 11.5px; text-align: center; line-height: 1.5;
+  }
+
+  @media (max-width: 1080px) {
+    main { flex-direction: column; }
+    .chat-panel { width: 100%; height: 65vh; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">IC</div>
+  <h1>图像工作台</h1>
+  <div class="badge"><span class="dot" id="badge-dot"></span><span id="badge-text">连接中…</span></div>
+</header>
+
+<div class="layout">
+  <nav>
+    <div class="group-label">控制台</div>
+    <div class="nav-item active" data-view="gallery">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+      对话
+    </div>
+    <div class="group-label" style="margin-top:14px;">会话 <span id="conv-count" style="color:var(--text-3);"></span></div>
+    <div class="nav-item nav-new" id="conv-new" title="新建对话">＋ 新建对话</div>
+    <div class="conv-list" id="conv-list"></div>
+    <div class="group-label" style="margin-top:12px;">扩展</div>
+    <div class="nav-item" data-view="skills">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+      Skill 库
+    </div>
+    <div class="nav-item" data-view="settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82 1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      设置
+    </div>
+  </nav>
+
+  <main>
+    <!-- 对话面板：文生图 + 图片编辑 统一入口 -->
+    <div class="panel chat-panel">
+      <div class="chat-msgs" id="chat-msgs"></div>
+
+      <div class="chat-foot">
+        <!-- / skill 弹出列表 -->
+        <div class="slash-popup" id="slash-popup"></div>
+
+        <!-- 生成设置（折叠面板，参数与 gpt-image-1 API 对齐） -->
+        <div class="settings" id="settings">
+          <div class="s-head">生成设置 · gpt-image-1 参数<span class="s-note">skill 预设与对话中明确指定的参数优先</span></div>
+          <div class="s-body">
+            <div class="s-field">
+              <div class="f-label">模型 model</div>
+              <input type="text" id="s-model" class="mono" value="gpt-image-1" placeholder="例如 gpt-image-1" list="image-model-presets">
+              <datalist id="image-model-presets">
+                <option value="gpt-image-1"></option>
+                <option value="gpt-image-1-mini"></option>
+                <option value="dall-e-3"></option>
+              </datalist>
+            </div>
+            <div class="s-field">
+              <div class="f-label">尺寸 size</div>
+              <div class="size-row">
+                <select id="s-size">
+                  <option value="1024x1024">1024×1024</option>
+                  <option value="1536x1024">1536×1024</option>
+                  <option value="1024x1536">1024×1536</option>
+                  <option value="auto">auto</option>
+                </select>
+                <div class="ratio-box"><div class="ratio-inner" id="s-ratio"></div></div>
+              </div>
+            </div>
+            <div class="s-field">
+              <div class="f-label">质量 quality</div>
+              <div class="seg" id="s-quality">
+                <button data-v="low">low</button>
+                <button data-v="medium">medium</button>
+                <button data-v="high" class="on">high</button>
+                <button data-v="auto">auto</button>
+              </div>
+            </div>
+            <div class="s-field">
+              <div class="f-label">数量 n</div>
+              <div class="stepper">
+                <button id="s-n-minus">−</button><span id="s-n">1</span><button id="s-n-plus">＋</button>
+              </div>
+            </div>
+            <div class="s-field">
+              <div class="f-label">格式 output_format</div>
+              <select id="s-format">
+                <option value="png">png</option>
+                <option value="jpeg">jpeg</option>
+                <option value="webp">webp</option>
+              </select>
+            </div>
+            <div class="s-field">
+              <div class="f-label">压缩率 output_compression<span class="f-val" id="s-comp-v">80</span></div>
+              <input type="range" id="s-comp" min="0" max="100" value="80" disabled>
+            </div>
+            <div class="s-field">
+              <div class="f-label">背景 background</div>
+              <select id="s-background">
+                <option value="auto">auto</option>
+                <option value="opaque">opaque</option>
+                <option value="transparent">transparent</option>
+              </select>
+            </div>
+            <div class="s-field">
+              <div class="f-label">审核 moderation</div>
+              <select id="s-moderation">
+                <option value="auto">auto</option>
+                <option value="low">low</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="attach-chip" id="attach-chip">
+          <img id="attach-thumb" alt="">
+          <span class="a-name" id="attach-name"></span>
+          <span class="a-tag">edit source</span>
+          <button class="a-remove" id="attach-remove" title="移除">×</button>
+        </div>
+
+        <div class="input-box">
+          <button class="icon-btn" id="btn-attach" title="上传图片（用于编辑）">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.4 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.2-9.19a4 4 0 015.65 5.66l-9.2 9.19a2 2 0 01-2.82-2.83l8.49-8.48"/></svg>
+          </button>
+          <input type="file" id="file-input" accept="image/*" hidden>
+          <textarea id="chat-input" placeholder="描述画面生成图片；输入 / 调用 skill；或先上传图片再说修改要求" rows="1"></textarea>
+          <button class="icon-btn" id="btn-settings" title="生成设置">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+          </button>
+          <button class="btn-send" id="chat-send" title="发送">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+        <div class="foot-hint"><span>Enter 发送 · / 调用 skill</span><span class="cur" id="cur-params"></span></div>
+      </div>
+    </div>
+
+    <!-- 右侧面板：画廊 / Skill 库 -->
+    <div class="panel results">
+      <div id="view-gallery">
+        <h2>生成结果 <span class="count" id="result-count"></span></h2>
+        <div class="empty" id="empty-state">暂无记录<br>在左侧对话中描述画面，或输入 / 调用 skill</div>
+        <div class="gallery" id="gallery"></div>
+      </div>
+      <div id="view-skills" style="display:none;">
+        <h2>已安装 Skill <span class="count" id="skill-count"></span></h2>
+        <div id="skill-list"></div>
+      </div>
+      <div id="view-settings" style="display:none;">
+        <h2>设置</h2>
+
+        <div class="set-group">
+          <div class="set-gtitle">对话 API</div>
+          <div class="set-body">
+            <label class="set-field">
+              <div class="f-label">对话 Base URL <span class="hint">OpenAI 兼容端点，可与图像 API 不同</span></div>
+              <input type="text" id="cfg-chat-base" class="mono" value="https://api.openai.com/v1">
+            </label>
+            <label class="set-field">
+              <div class="f-label">对话 API Key <span class="hint" id="cfg-chat-key-status">读取中…</span></div>
+              <div class="key-row">
+                <input type="password" id="cfg-chat-key" class="mono" placeholder="sk-...（填入后点击保存）">
+                <button id="cfg-chat-key-toggle" type="button">显示</button>
+              </div>
+            </label>
+            <label class="set-field">
+              <div class="f-label">对话模型</div>
+              <input type="text" id="cfg-chat-model" class="mono" value="gpt-4o" placeholder="例如 gpt-4.1" list="chat-model-presets">
+              <datalist id="chat-model-presets">
+                <option value="gpt-4o"></option>
+                <option value="gpt-4.1"></option>
+                <option value="gpt-4.1-mini"></option>
+                <option value="gpt-4o-mini"></option>
+              </datalist>
+            </label>
+            <label class="set-field">
+              <div class="f-label">对话模型支持图片识别 <span class="hint">开启后上传的图片会作为视觉内容发给模型；需模型本身支持 vision（如 gpt-4o）</span></div>
+              <span class="switch"><input type="checkbox" id="cfg-vision"><span class="sl"></span></span>
+            </label>
+            <label class="set-field">
+              <div class="f-label">System Prompt <span class="hint">保存到服务端，随每次对话注入 Pi Agent</span></div>
+              <textarea id="cfg-system">你是一个图片生成助手。根据用户描述调用 generate_image 生成图片；用户上传图片并要求修改时调用 edit_image。参数未明确时按生成设置的默认值执行。</textarea>
+            </label>
+          </div>
+        </div>
+
+        <div class="set-group">
+          <div class="set-gtitle">图像 API <span class="hint">与对话 API 相互独立</span></div>
+          <div class="set-body">
+            <label class="set-field">
+              <div class="f-label">图像 Base URL <span class="hint">gpt-image-1 端点，可与对话 API 不同</span></div>
+              <input type="text" id="cfg-image-base" class="mono" value="https://api.openai.com/v1">
+            </label>
+            <label class="set-field">
+              <div class="f-label">图像 API Key <span class="hint" id="cfg-image-key-status">读取中…</span></div>
+              <div class="key-row">
+                <input type="password" id="cfg-image-key" class="mono" placeholder="sk-...（填入后点击保存）">
+                <button id="cfg-image-key-toggle" type="button">显示</button>
+              </div>
+            </label>
+            <div class="set-grid">
+              <label class="set-field">
+                <div class="f-label">默认图像模型 <span class="hint">可填写任意模型名</span></div>
+                <input type="text" id="cfg-image-model" class="mono" value="gpt-image-1" placeholder="例如 gpt-image-1">
+              </label>
+              <label class="set-field">
+                <div class="f-label">默认尺寸</div>
+                <select id="cfg-size">
+                  <option value="1024x1024">1024×1024</option>
+                  <option value="1536x1024">1536×1024</option>
+                  <option value="1024x1536">1024×1536</option>
+                  <option value="auto">auto</option>
+                </select>
+              </label>
+              <label class="set-field">
+                <div class="f-label">默认质量</div>
+                <select id="cfg-quality">
+                  <option value="high">high</option>
+                  <option value="medium">medium</option>
+                  <option value="low">low</option>
+                  <option value="auto">auto</option>
+                </select>
+              </label>
+              <label class="set-field">
+                <div class="f-label">默认输出格式</div>
+                <select id="cfg-format">
+                  <option value="png">png</option>
+                  <option value="jpeg">jpeg</option>
+                  <option value="webp">webp</option>
+                </select>
+              </label>
+            </div>
+            <label class="set-field">
+              <div class="f-label">输出目录 <span class="hint">后端保存生成图片的本地路径</span></div>
+              <input type="text" id="cfg-outdir" class="mono" value="./outputs">
+            </label>
+            <div class="set-field" style="grid-column:1/-1;">
+              <div class="f-label">历史记录 <span class="hint">随会话自动保存</span></div>
+              <div style="font-size:12px;color:var(--text-3);padding:6px 0;line-height:1.6;">
+                产物按会话隔离保存在 <code class="mono" id="cfg-outdir-echo">./outputs</code> 下，元数据写入同目录的 <code class="mono">history.sqlite</code>。可在左侧切换或删除会话。
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="set-actions">
+          <button class="btn-outline" id="cfg-test-chat" type="button">测试对话 API</button>
+          <button class="btn-outline" id="cfg-test-image" type="button">测试图像 API</button>
+          <button class="btn-solid" id="cfg-save" type="button">保存设置</button>
+          <span class="set-status" id="cfg-status"></span>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- 图片大图预览 -->
+<div class="lightbox" id="lightbox" aria-hidden="true">
+  <button class="lb-close" id="lb-close" type="button" title="关闭预览">×</button>
+  <img id="lb-img" src="" alt="">
+  <div class="lb-cap" id="lb-cap"></div>
+</div>
+
+<script>
+/* ================= 状态 ================= */
+var API_BASE = ''; // 前端由后端同源托管，API 相对路径即可
+var convMessages = [];  // 当前会话的对话消息 [{role, content}]（不能叫 history，会撞 window.history）
+var imageHistory = [];  // 当前会话的历史图片
+var chatUpload = null;  // { dataURL, name, mimeType } 待编辑的上传图
+var busy = false;
+var conversations = []; // 会话列表 [{id, title, imageCount, thumbUrl, ...}]
+var currentConvId = ''; // 当前会话 ID（localStorage 持久化）
+var WELCOME_HTML = '';  // 对话区初始欢迎语
+
+/* ================= Skill 注册表（由后端 GET /api/skills 加载） ================= */
+var SKILLS = [];
+
+function $(id){ return document.getElementById(id); }
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; });
+}
+
+/* ================= 生成设置 ================= */
+function readSettings(){
+  return {
+    model: $('s-model').value.trim(),
+    size: $('s-size').value,
+    quality: document.querySelector('#s-quality .on').dataset.v,
+    n: parseInt($('s-n').textContent),
+    output_format: $('s-format').value,
+    output_compression: parseInt($('s-comp').value),
+    background: $('s-background').value,
+    moderation: $('s-moderation').value
+  };
+}
+function updateCurParams(){
+  var s = readSettings();
+  var parts = [s.model, s.size, s.quality];
+  if (s.n > 1) parts.push('n=' + s.n);
+  if (s.output_format !== 'png') parts.push(s.output_format);
+  if (s.background !== 'auto') parts.push(s.background);
+  $('cur-params').textContent = parts.join(' · ');
+}
+function updateRatio(){
+  var map = { '1024x1024':[20,20], '1536x1024':[28,18], '1024x1536':[16,26], 'auto':[20,20] };
+  var wh = map[$('s-size').value];
+  var el = $('s-ratio');
+  el.style.width = wh[0] + 'px'; el.style.height = wh[1] + 'px';
+}
+$('btn-settings').addEventListener('click', function(){
+  $('settings').classList.toggle('open');
+  this.classList.toggle('active');
+});
+$('s-quality').addEventListener('click', function(e){
+  if (e.target.tagName !== 'BUTTON') return;
+  this.querySelectorAll('button').forEach(function(b){ b.classList.remove('on'); });
+  e.target.classList.add('on');
+  updateCurParams();
+});
+$('s-n-minus').addEventListener('click', function(){ stepN(-1); });
+$('s-n-plus').addEventListener('click', function(){ stepN(1); });
+function stepN(d){
+  var v = Math.min(10, Math.max(1, parseInt($('s-n').textContent) + d));
+  $('s-n').textContent = v; updateCurParams();
+}
+['s-model','s-size','s-format','s-background','s-moderation'].forEach(function(id){
+  $(id).addEventListener('input', function(){
+    if (id === 's-size') updateRatio();
+    if (id === 's-format') $('s-comp').disabled = $('s-format').value === 'png';
+    updateCurParams();
+  });
+});
+$('s-comp').addEventListener('input', function(){
+  $('s-comp-v').textContent = this.value; updateCurParams();
+});
+
+/* ================= 对话基础 ================= */
+function addMsg(role, html){
+  var msgs = $('chat-msgs');
+  var div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.innerHTML = html;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  return div;
+}
+function addTyping(){
+  return addMsg('bot', '<span class="typing"><i></i><i></i><i></i></span>');
+}
+
+/* ================= 点击图片放大预览 ================= */
+function openImagePreview(src, caption){
+  if (!src) return;
+  $('lb-img').src = src;
+  $('lb-cap').textContent = caption || '';
+  $('lightbox').classList.add('show');
+  $('lightbox').setAttribute('aria-hidden', 'false');
+}
+function closeImagePreview(){
+  $('lightbox').classList.remove('show');
+  $('lightbox').setAttribute('aria-hidden', 'true');
+  $('lb-img').src = '';
+}
+document.addEventListener('click', function(e){
+  var img = e.target.closest('.imgmsg .imgs img, .card .thumb img, .msg.user .u-img');
+  if (!img) return;
+  var box = img.closest('.imgmsg, .card, .msg.user');
+  var capEl = box && box.querySelector('.cap, .p');
+  var cap = img.getAttribute('data-image-cap') || (capEl ? capEl.textContent.trim() : '');
+  openImagePreview(img.getAttribute('data-image-url') || img.src, cap);
+});
+$('lb-close').addEventListener('click', closeImagePreview);
+$('lightbox').addEventListener('click', function(e){ if (e.target === this) closeImagePreview(); });
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeImagePreview(); });
+
+/* ================= / skill 弹出列表 ================= */
+var slashList = [], slashIdx = 0;
+function renderSlashPopup(){
+  var popup = $('slash-popup');
+  if (!slashList.length) {
+    popup.innerHTML = '<div class="sp-empty">没有匹配的 skill</div>';
+    popup.classList.add('show');
+    return;
+  }
+  slashIdx = Math.min(slashIdx, slashList.length - 1);
+  popup.innerHTML = '<div class="sp-head">已安装 skill · server/skills/（↑↓ 选择，Enter 确认）</div>' +
+    slashList.map(function(s, i){
+      return '<div class="sp-item' + (i === slashIdx ? ' active' : '') + '" data-i="' + i + '">' +
+        '<span class="sp-name">/' + s.name + '</span><span class="sp-desc">' + escapeHtml(s.label + ' · ' + s.desc) + '</span></div>';
+    }).join('');
+  popup.classList.add('show');
+  popup.querySelectorAll('.sp-item').forEach(function(item){
+    item.addEventListener('mousedown', function(e){
+      e.preventDefault();
+      pickSlash(parseInt(item.dataset.i));
+    });
+  });
+}
+function hideSlashPopup(){ $('slash-popup').classList.remove('show'); }
+function pickSlash(i){
+  var s = slashList[i];
+  if (!s) return;
+  $('chat-input').value = '/' + s.name + ' ';
+  $('chat-input').focus();
+  hideSlashPopup();
+}
+function moveSlash(d){
+  slashIdx = (slashIdx + d + slashList.length) % slashList.length;
+  renderSlashPopup();
+}
+function onSlashInput(){
+  var v = $('chat-input').value;
+  if (v.charAt(0) === '/' && v.indexOf(' ') === -1) {
+    var q = v.slice(1).toLowerCase();
+    slashList = SKILLS.filter(function(s){
+      return s.enabled && (s.name.toLowerCase().indexOf(q) !== -1 || s.label.indexOf(q) !== -1);
+    });
+    slashIdx = 0;
+    renderSlashPopup();
+  } else {
+    hideSlashPopup();
+  }
+}
+/* 解析输入中的 /skill 指令 */
+function parseSlash(text){
+  var m = text.match(/^\/(\S+)\s*([\s\S]*)$/);
+  if (!m) return null;
+  var skill = null;
+  for (var i = 0; i < SKILLS.length; i++) {
+    if (SKILLS[i].name === m[1]) { skill = SKILLS[i]; break; }
+  }
+  return { name: m[1], args: m[2].trim(), skill: skill };
+}
+
+/* ================= Agent 响应流程（真实 SSE 调用后端） ================= */
+async function agentRespond(text, uploadSnapshot, slash){
+  if (busy) { addMsg('bot', '上一个任务还在进行中，请稍候。'); return; }
+  busy = true;
+  $('chat-send').disabled = true;
+
+  /* /skill 指令但未匹配 */
+  if (slash && !slash.skill) {
+    addMsg('bot', '未找到 skill「/' + slash.name + '」（或已停用）。输入 / 查看已安装列表，或到右侧「Skill 库」检查。');
+    busy = false; $('chat-send').disabled = false;
+    return;
+  }
+
+  var typing = addTyping();
+  var statusMsg = null;
+  var botTextMsg = null;
+  var botText = '';
+  var toolCards = {};
+
+  function ensureStatus(t){
+    if (!statusMsg) statusMsg = addMsg('bot', '');
+    statusMsg.textContent = '· ' + t;
+  }
+  function ensureBotText(){
+    if (!botTextMsg) botTextMsg = addMsg('bot', '');
+  }
+
+  try {
+    var payload = {
+      conversationId: currentConvId,
+      message: text,
+      history: convMessages.slice(-20),
+      systemPrompt: CONFIG.system || '',
+      settings: readSettings(),
+      skill: slash && slash.skill ? slash.skill.name : null,
+      attachment: uploadSnapshot ? {
+        name: uploadSnapshot.name,
+        mimeType: uploadSnapshot.mimeType,
+        data: uploadSnapshot.dataURL.split(',')[1] || ''
+      } : null
+    };
+    // 记录本轮用户输入到对话历史（text 已包含 /skill 前缀，不要重复拼接）
+    convMessages.push({ role: 'user', content: text });
+
+    var res = await fetch(API_BASE + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    typing.remove();
+
+    if (!res.ok || !res.body) {
+      var errBody = await res.json().catch(function(){ return {}; });
+      throw new Error(errBody.message || ('HTTP ' + res.status));
+    }
+
+    var reader = res.body.getReader();
+    var decoder = new TextDecoder();
+    var buffer = '';
+    while (true) {
+      var chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      var parts = buffer.split('\n\n');
+      buffer = parts.pop() || '';
+      for (var p of parts) {
+        var eventName = '', dataLine = '';
+        for (var line of p.split('\n')) {
+          if (line.startsWith('event: ')) eventName = line.slice(7);
+          if (line.startsWith('data: ')) dataLine = line.slice(6);
+        }
+        if (!dataLine) continue;
+        var ev;
+        try { ev = JSON.parse(dataLine); } catch (e) { continue; }
+        switch (ev.type || eventName) {
+          case 'status':
+            ensureStatus(ev.text);
+            break;
+          case 'tool_call':
+            var card = addMsg('tool',
+              '<div class="t-head"><span>tool_call</span><span class="fn">' + escapeHtml(ev.name) +
+              '</span><span class="t-status">running</span></div><pre>' + escapeHtml(JSON.stringify(ev.arguments, null, 2)) + '</pre>');
+            toolCards[ev.id] = card;
+            ensureStatus('执行 ' + ev.name + '…');
+            break;
+          case 'tool_result':
+            var tc = toolCards[ev.id];
+            if (tc) {
+              var st = tc.querySelector('.t-status');
+              st.textContent = (ev.status === 'ok' ? 'ok' : 'error') + ' · ' + (ev.duration / 1000).toFixed(1) + 's';
+              if (ev.status === 'ok') st.classList.add('ok');
+            }
+            break;
+          case 'image':
+            var img = ev.image;
+            addMsg('imgmsg',
+              '<div class="imgs"><img src="' + img.url + '" alt=""></div>' +
+              '<div class="cap">' + escapeHtml(img.prompt) + '<br>' + img.size + ' · ' + img.quality + ' · ' + img.model + '</div>');
+            imageHistory.unshift(img);
+            prependGalleryCard(img.prompt, img.url, img.size, img.quality);
+            break;
+          case 'text':
+            ensureBotText();
+            botText += ev.delta;
+            botTextMsg.textContent = botText;
+            break;
+          case 'error':
+            addMsg('bot', '错误 [' + ev.code + ']：' + ev.message);
+            break;
+          case 'done':
+            if (statusMsg) statusMsg.remove();
+            if (ev.conversationId) currentConvId = ev.conversationId;
+            saveCurrentConv();
+            loadConversations();
+            break;
+        }
+      }
+    }
+    if (botText) convMessages.push({ role: 'assistant', content: botText });
+    if (uploadSnapshot) clearAttach();
+  } catch (err) {
+    typing.remove();
+    if (statusMsg) statusMsg.remove();
+    addMsg('bot', '请求失败：' + ((err && err.message) || String(err)));
+  } finally {
+    busy = false;
+    $('chat-send').disabled = false;
+  }
+}
+
+/* ================= 附件（上传待编辑图片） ================= */
+$('btn-attach').addEventListener('click', function(){ $('file-input').click(); });
+$('file-input').addEventListener('change', function(e){
+  var file = e.target.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(ev){
+    chatUpload = { dataURL: ev.target.result, name: file.name, mimeType: file.type || 'image/png' };
+    $('attach-thumb').src = chatUpload.dataURL;
+    $('attach-name').textContent = file.name;
+    $('attach-chip').classList.add('show');
+    $('chat-input').placeholder = '原图已就绪，说明修改要求（如：把背景换成星空）';
+    $('chat-input').focus();
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+});
+function clearAttach(){
+  chatUpload = null;
+  $('attach-chip').classList.remove('show');
+  $('chat-input').placeholder = '描述画面生成图片；输入 / 调用 skill；或先上传图片再说修改要求';
+}
+$('attach-remove').addEventListener('click', clearAttach);
+
+/* ================= 发送 ================= */
+$('chat-send').addEventListener('click', sendChat);
+$('chat-input').addEventListener('input', onSlashInput);
+$('chat-input').addEventListener('keydown', function(e){
+  if ($('slash-popup').classList.contains('show')) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); moveSlash(1); return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); moveSlash(-1); return; }
+    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickSlash(slashIdx); return; }
+    if (e.key === 'Escape') { hideSlashPopup(); return; }
+  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+});
+function sendChat(){
+  var v = $('chat-input').value.trim();
+  if (!v && !chatUpload) return;
+  if (!v) v = '编辑这张图片';
+  $('chat-input').value = '';
+  hideSlashPopup();
+  var uploadSnapshot = chatUpload;
+  var slash = parseSlash(v);
+  var html = escapeHtml(v);
+  if (uploadSnapshot) html += '<img class="u-img" src="' + uploadSnapshot.dataURL + '" alt="">';
+  addMsg('user', html);
+  agentRespond(v, uploadSnapshot, slash);
+}
+
+/* ================= 画廊 ================= */
+function prependGalleryCard(prompt, url, size, quality){
+  $('empty-state').style.display = 'none';
+  var card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = '<div class="thumb"><img src="' + url + '" alt=""></div>' +
+    '<div class="meta"><div class="p">' + escapeHtml(prompt) + '</div><div>' + size + ' · ' + quality + '</div></div>';
+  $('gallery').prepend(card);
+}
+function updateCount(){
+  $('result-count').textContent = convMessages.length > 0 ? convMessages.length + ' items' : '';
+}
+
+/* ================= Skill 库视图 ================= */
+function renderSkills(){
+  var el = $('skill-list');
+  el.innerHTML = SKILLS.map(function(s, i){
+    var ovs = Object.keys(s.overrides).map(function(k){
+      return '<span>' + k + '=' + s.overrides[k] + '</span>';
+    }).join('');
+    return '<div class="skill-card' + (s.enabled ? '' : ' off') + '">' +
+      '<div class="sk-head"><span class="sk-name">/' + s.name + '</span>' +
+      '<label class="switch"><input type="checkbox" data-i="' + i + '"' + (s.enabled ? ' checked' : '') + '><span class="sl"></span></label></div>' +
+      '<div class="sk-label">' + escapeHtml(s.label) + '</div>' +
+      '<div class="sk-desc">' + escapeHtml(s.desc) + '</div>' +
+      (ovs ? '<div class="sk-ov">' + ovs + '</div>' : '') +
+      '<div class="sk-src">' + s.source + '</div></div>';
+  }).join('');
+  $('skill-count').textContent = SKILLS.filter(function(s){ return s.enabled; }).length + ' / ' + SKILLS.length + ' enabled';
+  el.querySelectorAll('input[type="checkbox"]').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      SKILLS[parseInt(cb.dataset.i)].enabled = cb.checked;
+      renderSkills();
+    });
+  });
+}
+
+/* ================= 设置（API 与生成配置） ================= */
+var DEFAULT_CONFIG = {
+  chatBase: 'https://api.openai.com/v1',
+  chatKey: '',
+  chatModel: 'gpt-4o',
+  chatVision: false,
+  system: '你是一个图片生成助手。根据用户描述调用 generate_image 生成图片；用户上传图片并要求修改时调用 edit_image。参数未明确时按生成设置的默认值执行。',
+  imageBase: 'https://api.openai.com/v1',
+  imageKey: '',
+  imageModel: 'gpt-image-1',
+  size: '1024x1024',
+  quality: 'high',
+  format: 'png',
+  outdir: './outputs'
+};
+var CONFIG = {};
+function loadConfig(){
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem('image-workbench-config') || '{}'); } catch (e) {}
+  CONFIG = Object.assign({}, DEFAULT_CONFIG, saved);
+}
+/* 把设置里的图像默认值同步到「生成设置」面板 */
+function applyConfigToSettingsPanel(){
+  $('s-model').value = CONFIG.imageModel;
+  $('s-size').value = CONFIG.size;
+  $('s-format').value = CONFIG.format;
+  document.querySelectorAll('#s-quality button').forEach(function(b){
+    b.classList.toggle('on', b.dataset.v === CONFIG.quality);
+  });
+  $('s-comp').disabled = CONFIG.format === 'png';
+  updateRatio();
+  updateCurParams();
+}
+function applyConfigToForm(){
+  $('cfg-chat-base').value = CONFIG.chatBase;
+  $('cfg-chat-key').value = CONFIG.chatKey;
+  $('cfg-chat-model').value = CONFIG.chatModel;
+  $('cfg-vision').checked = !!CONFIG.chatVision;
+  $('cfg-system').value = CONFIG.system;
+  $('cfg-image-base').value = CONFIG.imageBase;
+  $('cfg-image-key').value = CONFIG.imageKey;
+  $('cfg-image-model').value = CONFIG.imageModel;
+  $('cfg-size').value = CONFIG.size;
+  $('cfg-quality').value = CONFIG.quality;
+  $('cfg-format').value = CONFIG.format;
+  $('cfg-outdir').value = CONFIG.outdir;
+  var echo = $('cfg-outdir-echo');
+  if (echo) echo.textContent = CONFIG.outdir;
+}
+function readConfigForm(){
+  return {
+    chatBase: $('cfg-chat-base').value.trim(),
+    chatKey: $('cfg-chat-key').value.trim(),
+    chatModel: $('cfg-chat-model').value.trim(),
+    chatVision: $('cfg-vision').checked,
+    system: $('cfg-system').value.trim(),
+    imageBase: $('cfg-image-base').value.trim(),
+    imageKey: $('cfg-image-key').value.trim(),
+    imageModel: $('cfg-image-model').value.trim(),
+    size: $('cfg-size').value,
+    quality: $('cfg-quality').value,
+    format: $('cfg-format').value,
+    outdir: $('cfg-outdir').value.trim()
+  };
+}
+function bindKeyToggle(btnId, inputId){
+  $(btnId).addEventListener('click', function(){
+    var input = $(inputId);
+    var show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    this.textContent = show ? '隐藏' : '显示';
+  });
+}
+bindKeyToggle('cfg-chat-key-toggle', 'cfg-chat-key');
+bindKeyToggle('cfg-image-key-toggle', 'cfg-image-key');
+$('cfg-save').addEventListener('click', async function(){
+  CONFIG = readConfigForm();
+  try { localStorage.setItem('image-workbench-config', JSON.stringify(CONFIG)); } catch (e) {}
+  applyConfigToSettingsPanel();
+  var st = $('cfg-status');
+  st.classList.remove('ok');
+  st.textContent = '正在保存…';
+  var body = {
+    chatBaseUrl: CONFIG.chatBase,
+    chatModel: CONFIG.chatModel,
+    chatVision: CONFIG.chatVision,
+    systemPrompt: CONFIG.system,
+    imageBaseUrl: CONFIG.imageBase,
+    imageModel: CONFIG.imageModel
+  };
+  // Key 留空且服务端已配置时不传，保持原 Key
+  if (CONFIG.chatKey || !$('cfg-chat-key-status').textContent.includes('已配置')) body.chatApiKey = CONFIG.chatKey;
+  if (CONFIG.imageKey || !$('cfg-image-key-status').textContent.includes('已配置')) body.imageApiKey = CONFIG.imageKey;
+  try {
+    var res = await fetch(API_BASE + '/api/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.message || ('HTTP ' + res.status));
+    updateKeyStatus('cfg-chat-key-status', data.chatApiKeyConfigured);
+    updateKeyStatus('cfg-image-key-status', data.imageApiKeyConfigured);
+    CONFIG.chatKey = ''; CONFIG.imageKey = '';
+    applyConfigToForm();
+    st.textContent = '已保存并生效 · ' + new Date().toLocaleTimeString();
+    st.classList.add('ok');
+  } catch (err) {
+    st.textContent = '保存失败：' + ((err && err.message) || String(err));
+  }
+});
+function updateKeyStatus(id, configured){
+  var el = $(id);
+  if (!el) return;
+  el.textContent = configured ? '● 已配置（服务端）' : '○ 未配置 · 填入后保存即可使用';
+  el.style.color = configured ? '#0a0' : '#c60';
+}
+function testConnection(kind){
+  var st = $('cfg-status');
+  st.classList.remove('ok');
+  st.textContent = '正在测试' + (kind === 'chat' ? '对话' : '图像') + ' API…';
+  fetch(API_BASE + '/api/test-connection/' + kind, { method: 'POST' })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      st.textContent = (data.ok ? '连接正常 · ' : '连接失败 [' + (data.code || '') + '] · ') + data.message;
+      if (data.ok) st.classList.add('ok');
+    })
+    .catch(function(err){ st.textContent = '请求失败：' + ((err && err.message) || String(err)); });
+}
+$('cfg-test-chat').addEventListener('click', function(){ testConnection('chat'); });
+$('cfg-test-image').addEventListener('click', function(){ testConnection('image'); });
+
+/* ================= 导航 / 视图切换 ================= */
+document.querySelectorAll('.nav-item').forEach(function(item){
+  item.addEventListener('click', function(){
+    document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
+    item.classList.add('active');
+    var view = item.dataset.view;
+    ['gallery', 'skills', 'settings'].forEach(function(v){
+      $('view-' + v).style.display = v === view ? '' : 'none';
+    });
+  });
+});
+
+/* ================= 初始化：从后端加载 skill / 会话 / 历史 / 配置 ================= */
+loadConfig();
+applyConfigToForm();
+applyConfigToSettingsPanel();
+WELCOME_HTML = $('chat-msgs').innerHTML;
+loadSavedConv();
+$('conv-new').addEventListener('click', newConversation);
+
+function loadSkillsFromServer(){
+  return fetch(API_BASE + '/api/skills')
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      SKILLS = (data.skills || []).map(function(s){
+        return { name: s.name, label: s.label, desc: s.description, template: s.template, overrides: s.overrides || {}, source: s.source, enabled: s.enabled };
+      });
+      renderSkills();
+    })
+    .catch(function(err){ console.warn('加载 skill 失败', err); });
+}
+/* ================= 会话管理 ================= */
+function newConvId(){
+  return 'conv_' + (crypto.randomUUID ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(16).slice(2))).replace(/-/g, '').slice(0, 24);
+}
+function saveCurrentConv(){ try { localStorage.setItem('image-workbench-conv', currentConvId); } catch (e) {} }
+function loadSavedConv(){
+  var id = '';
+  try { id = localStorage.getItem('image-workbench-conv') || ''; } catch (e) {}
+  currentConvId = /^[A-Za-z0-9_-]{1,64}$/.test(id) ? id : newConvId();
+}
+function loadConversations(){
+  return fetch(API_BASE + '/api/conversations')
+    .then(function(r){ return r.json(); })
+    .then(function(data){ conversations = data.conversations || []; renderConversations(); })
+    .catch(function(err){ console.warn('加载会话列表失败', err); });
+}
+function renderConversations(){
+  var el = $('conv-list');
+  $('conv-count').textContent = conversations.length ? '(' + conversations.length + ')' : '';
+  if (!conversations.length) { el.innerHTML = '<div class="conv-empty">还没有会话，点上方新建</div>'; return; }
+  el.innerHTML = conversations.map(function(c){
+    var active = c.id === currentConvId ? ' active' : '';
+    var thumb = c.thumbUrl ? '<img class="ci-thumb" src="' + c.thumbUrl + '" alt="">' : '<span class="ci-thumb"></span>';
+    var cnt = c.imageCount ? '<span style="opacity:.6;font-size:11px;">' + c.imageCount + '</span>' : '';
+    return '<div class="conv-item' + active + '" data-id="' + c.id + '" title="' + escapeHtml(c.title) + '">' +
+      thumb + '<span class="ci-title">' + escapeHtml(c.title) + '</span>' + cnt +
+      '<button class="ci-del" data-del="' + c.id + '" title="删除会话">×</button></div>';
+  }).join('');
+  el.querySelectorAll('.conv-item').forEach(function(item){
+    item.addEventListener('click', function(e){
+      if (e.target.closest('.ci-del')) return;
+      switchConversation(item.dataset.id);
+    });
+  });
+  el.querySelectorAll('.ci-del').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      removeConversation(btn.dataset.del);
+    });
+  });
+}
+function switchConversation(id){
+  if (id === currentConvId || busy) return;
+  currentConvId = id;
+  saveCurrentConv();
+  renderConversations();
+  clearChatAndGallery();
+  loadHistoryFromServer();
+}
+function newConversation(){
+  if (busy) { addMsg('bot', '上一个任务还在进行中，请稍候。'); return; }
+  currentConvId = newConvId();
+  saveCurrentConv();
+  renderConversations();
+  clearChatAndGallery();
+}
+function clearChatAndGallery(){
+  convMessages = [];
+  imageHistory = [];
+  $('chat-msgs').innerHTML = WELCOME_HTML;
+  $('gallery').innerHTML = '';
+  $('empty-state').style.display = '';
+  updateCount();
+  clearAttach();
+}
+function removeConversation(id){
+  if (!confirm('确定删除这个会话及其所有图片产物吗？此操作不可恢复。')) return;
+  fetch(API_BASE + '/api/conversations/' + encodeURIComponent(id), { method: 'DELETE' })
+    .then(function(r){ return r.json(); })
+    .then(function(){
+      conversations = conversations.filter(function(c){ return c.id !== id; });
+      if (id === currentConvId) {
+        if (conversations.length) {
+          currentConvId = conversations[0].id;
+          clearChatAndGallery();
+          loadHistoryFromServer();
+        } else {
+          currentConvId = newConvId();
+          clearChatAndGallery();
+        }
+        saveCurrentConv();
+      }
+      renderConversations();
+    })
+    .catch(function(err){ addMsg('bot', '删除会话失败：' + ((err && err.message) || String(err))); });
+}
+
+/** 把已落库的消息原样渲染回对话区：文本气泡 + 该轮产出的图片气泡 */
+function renderStoredMessages(msgs, imageById){
+  $('chat-msgs').innerHTML = WELCOME_HTML;
+  convMessages = [];
+  msgs.forEach(function(m){
+    if (m.role === 'user') {
+      var html = escapeHtml(m.content || '');
+      // 上传原图已按会话落库，用 attachmentImageId 还原出可点击预览的缩略图
+      if (m.attachmentImageId) {
+        html += '<img class="u-img" src="' + API_BASE + '/api/images/' + encodeURIComponent(m.attachmentImageId) +
+          '" alt="' + escapeHtml(m.attachmentName || '上传图片') + '" data-image-url="' + API_BASE + '/api/images/' + encodeURIComponent(m.attachmentImageId) +
+          '" data-image-cap="' + escapeHtml(m.attachmentName || '上传图片') + '">';
+      }
+      if (m.attachmentName) html += '<div style="font-size:11px;opacity:.6;margin-top:6px">附件：' + escapeHtml(m.attachmentName) + '</div>';
+      addMsg('user', html);
+      if (m.content) convMessages.push({ role: 'user', content: m.content });
+      return;
+    }
+    if (m.content) {
+      addMsg('bot', escapeHtml(m.content));
+      convMessages.push({ role: 'assistant', content: m.content });
+    }
+    (m.imageIds || []).forEach(function(id){
+      var img = imageById[id];
+      if (!img) return;
+      addMsg('imgmsg',
+        '<div class="imgs"><img src="' + img.url + '" alt=""></div>' +
+        '<div class="cap">' + escapeHtml(img.prompt) + '<br>' + img.size + ' · ' + img.quality + ' · ' + img.model + '</div>');
+    });
+  });
+  updateCount();
+}
+function loadHistoryFromServer(){
+  var convId = currentConvId;
+  var base = API_BASE + '/api/conversations/' + encodeURIComponent(convId);
+  return Promise.all([
+    fetch(base + '/messages').then(function(r){ return r.json(); }),
+    fetch(base + '/images').then(function(r){ return r.json(); })
+  ]).then(function(res){
+    if (currentConvId !== convId) return; // 加载期间用户切了会话，丢弃过期响应
+    imageHistory = res[1].images || [];
+    var imageById = {};
+    imageHistory.forEach(function(img){ imageById[img.id] = img; });
+    renderStoredMessages(res[0].messages || [], imageById);
+    $('gallery').innerHTML = '';
+    imageHistory.slice().reverse().forEach(function(img){ prependGalleryCard(img.prompt, img.url, img.size, img.quality); });
+    if (imageHistory.length) $('empty-state').style.display = 'none';
+  }).catch(function(err){ console.warn('加载历史失败', err); });
+}
+function loadServerConfig(){
+  return fetch(API_BASE + '/api/config')
+    .then(function(r){ return r.json(); })
+    .then(function(cfg){
+      CONFIG.chatBase = cfg.chatBaseUrl;
+      CONFIG.chatModel = cfg.chatModel;
+      CONFIG.chatVision = !!cfg.chatVision;
+      CONFIG.system = cfg.systemPrompt || CONFIG.system;
+      CONFIG.imageBase = cfg.imageBaseUrl;
+      CONFIG.imageModel = cfg.imageModel;
+      CONFIG.outdir = cfg.outputDir;
+      var ready = cfg.chatApiKeyConfigured && cfg.imageApiKeyConfigured;
+      $('badge-text').textContent = cfg.imageModel + (ready ? ' · 已就绪' : ' · 待配置 Key');
+      $('badge-dot').style.background = ready ? '#16a34a' : '#d97706';
+      // 后端不返回明文 Key，输入框留空由用户输入
+      CONFIG.chatKey = ''; CONFIG.imageKey = '';
+      applyConfigToForm();
+      $('cfg-chat-key').placeholder = cfg.chatApiKeyConfigured ? '已配置（留空保持不变，填入则覆盖）' : 'sk-...（填入后点击保存）';
+      $('cfg-image-key').placeholder = cfg.imageApiKeyConfigured ? '已配置（留空保持不变，填入则覆盖）' : 'sk-...（填入后点击保存）';
+      updateKeyStatus('cfg-chat-key-status', cfg.chatApiKeyConfigured);
+      updateKeyStatus('cfg-image-key-status', cfg.imageApiKeyConfigured);
+      applyConfigToSettingsPanel();
+    })
+    .catch(function(err){ console.warn('加载服务端配置失败', err); });
+}
+
+// 会话列表与 skill、配置并行加载；当前会话图片随后加载（后端会在首条消息时自动建会话）
+Promise.all([loadSkillsFromServer(), loadConversations(), loadServerConfig()]).then(function(){
+  loadHistoryFromServer();
+});
+</script>
+</body>
+</html>
