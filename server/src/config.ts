@@ -21,6 +21,7 @@ interface RuntimeConfig {
   chatBaseUrl?: string;
   chatModel?: string;
   chatVision?: boolean;
+  chatThinking?: string;
   systemPrompt?: string;
   imageApiKey?: string;
   imageBaseUrl?: string;
@@ -47,6 +48,8 @@ export interface AppConfig {
   chatBaseUrl: string;
   chatModel: string;
   chatVision: boolean;
+  /** Pi 思考级别：off/minimal/low/medium/high/xhigh/max；模型不支持时 Pi 自动忽略 */
+  chatThinking: string;
   systemPrompt: string;
   // 图像 API（gpt-image-1 文生图/编辑）
   imageApiKey: string;
@@ -71,6 +74,7 @@ export const config: AppConfig = {
   chatBaseUrl: (runtime.chatBaseUrl ?? env('CHAT_BASE_URL', legacyBase)).replace(/\/+$/, ''),
   chatModel: runtime.chatModel ?? env('CHAT_MODEL', 'gpt-4o'),
   chatVision: runtime.chatVision ?? envBool('CHAT_VISION', false),
+  chatThinking: runtime.chatThinking ?? env('CHAT_THINKING', 'off'),
   systemPrompt: runtime.systemPrompt ?? env('SYSTEM_PROMPT', DEFAULT_SYSTEM_PROMPT),
 
   imageApiKey: runtime.imageApiKey ?? env('IMAGE_API_KEY', legacyKey),
@@ -97,6 +101,7 @@ export function updateRuntimeConfig(patch: RuntimeConfig): void {
   if (patch.chatBaseUrl !== undefined) config.chatBaseUrl = patch.chatBaseUrl.trim().replace(/\/+$/, '') || OFFICIAL;
   if (patch.chatModel !== undefined) config.chatModel = patch.chatModel.trim();
   if (patch.chatVision !== undefined) config.chatVision = !!patch.chatVision;
+  if (patch.chatThinking !== undefined) config.chatThinking = patch.chatThinking.trim() || 'off';
   if (patch.systemPrompt !== undefined) config.systemPrompt = patch.systemPrompt.trim();
   if (patch.imageApiKey !== undefined) config.imageApiKey = patch.imageApiKey.trim();
   if (patch.imageBaseUrl !== undefined) config.imageBaseUrl = patch.imageBaseUrl.trim().replace(/\/+$/, '') || OFFICIAL;
@@ -107,6 +112,7 @@ export function updateRuntimeConfig(patch: RuntimeConfig): void {
     chatBaseUrl: config.chatBaseUrl,
     chatModel: config.chatModel,
     chatVision: config.chatVision,
+    chatThinking: config.chatThinking,
     systemPrompt: config.systemPrompt,
     imageApiKey: config.imageApiKey,
     imageBaseUrl: config.imageBaseUrl,

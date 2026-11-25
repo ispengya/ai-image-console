@@ -255,7 +255,26 @@
   .msg.tool .t-head .skill-tag { font-size: 10.5px; border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; color: var(--muted-foreground); background: var(--card); }
   .msg.tool .t-status { margin-left: auto; font-size: 10.5px; color: #b45309; }
   .msg.tool .t-status.ok { color: #16a34a; }
+  .msg.tool .t-status.error { color: var(--destructive); }
   .msg.tool pre { padding: 12px 14px; font-family: var(--mono); font-size: 11.5px; line-height: 1.65; color: var(--muted-foreground); overflow-x: auto; white-space: pre; }
+  .msg.tool .t-result {
+    border-top: 1px solid var(--border); padding: 10px 14px; font-family: var(--mono);
+    font-size: 11.5px; line-height: 1.65; color: var(--foreground); white-space: pre-wrap;
+    word-break: break-word; max-height: 220px; overflow-y: auto;
+  }
+  .msg.tool .t-result:empty { display: none; }
+  .msg.tool .t-result-label { color: var(--muted-foreground); font-size: 10px; letter-spacing: .04em; display: block; margin-bottom: 4px; }
+  /* 思考过程：流式显示、结束后淡化 */
+  .msg.thinking {
+    align-self: flex-start; max-width: 100%; color: var(--muted-foreground);
+    font-size: 12.5px; line-height: 1.65; padding: 2px 0; white-space: pre-wrap;
+    word-break: break-word; font-style: italic; opacity: .85;
+  }
+  .msg.thinking .th-label {
+    display: block; font-style: normal; font-family: var(--mono); font-size: 10px;
+    letter-spacing: .06em; margin-bottom: 4px; opacity: .7;
+  }
+  .msg.thinking.done { opacity: .55; }
   .msg.imgmsg { align-self: flex-start; background: none; padding: 0; border: none; box-shadow: none; max-width: 100%; }
   .msg.imgmsg .imgs { display: flex; flex-wrap: wrap; gap: 8px; }
   .msg.imgmsg img {
@@ -689,6 +708,18 @@
               <span class="switch"><input type="checkbox" id="cfg-vision"><span class="sl"></span></span>
             </label>
             <label class="set-field">
+              <div class="f-label">思考级别 <span class="hint">开启后模型思考过程会流式显示在对话中；需模型本身支持 reasoning，否则自动忽略</span></div>
+              <select id="cfg-thinking">
+                <option value="off">off · 关闭</option>
+                <option value="minimal">minimal · 最少</option>
+                <option value="low">low · 低</option>
+                <option value="medium">medium · 中</option>
+                <option value="high">high · 高</option>
+                <option value="xhigh">xhigh · 极高</option>
+                <option value="max">max · 最大</option>
+              </select>
+            </label>
+            <label class="set-field">
               <div class="f-label">System Prompt <span class="hint">保存到服务端，随每次对话注入 Pi Agent</span></div>
               <textarea id="cfg-system">你是一个图片生成助手。根据用户描述调用 generate_image 生成图片；用户上传图片并要求修改时调用 edit_image。参数未明确时按生成设置的默认值执行。</textarea>
             </label>
@@ -1012,6 +1043,7 @@ async function agentRespond(text, uploadSnapshot, slash){
   var statusMsg = null;
   var botTextMsg = null;
   var botText = '';
+  var thinkMsg = null;
   var toolCards = {};
 
   function ensureStatus(t){
@@ -1076,9 +1108,12 @@ async function agentRespond(text, uploadSnapshot, slash){
             ensureStatus(ev.text);
             break;
           case 'tool_call':
+            var builtin = ['generate_image', 'edit_image'].indexOf(ev.name) < 0;
             var card = addMsg('tool',
-              '<div class="t-head"><span>tool_call</span><span class="fn">' + escapeHtml(ev.name) +
-              '</span><span class="t-status">running</span></div><pre>' + escapeHtml(JSON.stringify(ev.arguments, null, 2)) + '</pre>');
+              '<div class="t-head"><span>tool_call</span><span class="fn">' + escapeHtml(ev.name) + '</span>' +
+              (builtin ? '<span class="skill-tag">built-in</span>' : '<span class="skill-tag">image</span>') +
+              '<span class="t-status">running</span></div><pre>' + escapeHtml(JSON.stringify(ev.arguments, null, 2)) + '</pre>' +
+              '<div class="t-result"></div>');
             toolCards[ev.id] = card;
             ensureStatus('执行 ' + ev.name + '…');
             break;
@@ -1086,9 +1121,21 @@ async function agentRespond(text, uploadSnapshot, slash){
             var tc = toolCards[ev.id];
             if (tc) {
               var st = tc.querySelector('.t-status');
-              st.textContent = (ev.status === 'ok' ? 'ok' : 'error') + ' · ' + (ev.duration / 1000).toFixed(1) + 's';
-              if (ev.status === 'ok') st.classList.add('ok');
+              st.textContent = (ev.status === 'ok' ? 'ok' : 'error') + ' · ' + ((ev.duration || 0) / 1000).toFixed(1) + 's';
+              st.classList.add(ev.status === 'ok' ? 'ok' : 'error');
+              var resultBox = tc.querySelector('.t-result');
+              if (resultBox && ev.result) {
+                resultBox.innerHTML = '<span class="t-result-label">result</span>' + escapeHtml(ev.result);
+              }
             }
+            break;
+          case 'thinking':
+            if (!thinkMsg) thinkMsg = addMsg('thinking', '<span class="th-label">thinking…</span>');
+            var thBody = thinkMsg.querySelector('.th-body');
+            if (!thBody) { thBody = document.createElement('span'); thBody.className = 'th-body'; thinkMsg.appendChild(thBody); }
+            thBody.textContent += ev.delta;
+            var tm = $('chat-msgs');
+            tm.scrollTop = tm.scrollHeight;
             break;
           case 'image':
             var img = ev.image;
@@ -1114,6 +1161,7 @@ async function agentRespond(text, uploadSnapshot, slash){
       }
     }
     if (botTextMsg && botText.trim()) botTextMsg.innerHTML = renderMarkdown(botText);
+    if (thinkMsg) thinkMsg.classList.add('done');
     if (botText) convMessages.push({ role: 'assistant', content: botText });
     if (uploadSnapshot) clearAttach();
   } catch (err) {
@@ -1295,6 +1343,7 @@ var DEFAULT_CONFIG = {
   chatKey: '',
   chatModel: 'gpt-4o',
   chatVision: false,
+  chatThinking: 'off',
   system: '你是一个图片生成助手。根据用户描述调用 generate_image 生成图片；用户上传图片并要求修改时调用 edit_image。参数未明确时按生成设置的默认值执行。',
   imageBase: 'https://api.openai.com/v1',
   imageKey: '',
@@ -1327,6 +1376,7 @@ function applyConfigToForm(){
   $('cfg-chat-key').value = CONFIG.chatKey;
   $('cfg-chat-model').value = CONFIG.chatModel;
   $('cfg-vision').checked = !!CONFIG.chatVision;
+  $('cfg-thinking').value = CONFIG.chatThinking || 'off';
   $('cfg-system').value = CONFIG.system;
   $('cfg-image-base').value = CONFIG.imageBase;
   $('cfg-image-key').value = CONFIG.imageKey;
@@ -1344,6 +1394,7 @@ function readConfigForm(){
     chatKey: $('cfg-chat-key').value.trim(),
     chatModel: $('cfg-chat-model').value.trim(),
     chatVision: $('cfg-vision').checked,
+    chatThinking: $('cfg-thinking').value,
     system: $('cfg-system').value.trim(),
     imageBase: $('cfg-image-base').value.trim(),
     imageKey: $('cfg-image-key').value.trim(),
@@ -1375,6 +1426,7 @@ $('cfg-save').addEventListener('click', async function(){
     chatBaseUrl: CONFIG.chatBase,
     chatModel: CONFIG.chatModel,
     chatVision: CONFIG.chatVision,
+    chatThinking: CONFIG.chatThinking,
     systemPrompt: CONFIG.system,
     imageBaseUrl: CONFIG.imageBase,
     imageModel: CONFIG.imageModel
@@ -1597,6 +1649,7 @@ function loadServerConfig(){
       CONFIG.chatBase = cfg.chatBaseUrl;
       CONFIG.chatModel = cfg.chatModel;
       CONFIG.chatVision = !!cfg.chatVision;
+      CONFIG.chatThinking = cfg.chatThinking || 'off';
       CONFIG.system = cfg.systemPrompt || CONFIG.system;
       CONFIG.imageBase = cfg.imageBaseUrl;
       CONFIG.imageModel = cfg.imageModel;

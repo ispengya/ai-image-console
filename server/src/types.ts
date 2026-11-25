@@ -77,8 +77,9 @@ export interface SkillPreset {
 
 export type SseEvent =
   | { type: 'status'; text: string }
+  | { type: 'thinking'; delta: string }
   | { type: 'tool_call'; id: string; name: string; arguments: Record<string, unknown> }
-  | { type: 'tool_result'; id: string; status: 'ok' | 'error'; duration: number }
+  | { type: 'tool_result'; id: string; status: 'ok' | 'error'; duration: number; result?: string }
   | { type: 'image'; image: GeneratedImage }
   | { type: 'text'; delta: string }
   | { type: 'error'; code: string; message: string }

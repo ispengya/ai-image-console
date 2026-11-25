@@ -122,7 +122,7 @@ function saveAndEmit(images: string[], opts: {
     parentId: opts.parentId,
   }));
   for (const image of saved) opts.emit({ type: 'image', image });
-  opts.emit({ type: 'tool_result', id: opts.toolCallId, status: 'ok', duration: Date.now() - opts.started });
+  // tool_result 由 session.subscribe 的 tool_execution_end 统一发出，覆盖内置与自定义工具
   return saved;
 }
 
@@ -187,7 +187,8 @@ export async function runAgent(req: ChatRequest, skills: SkillPreset[], emit: Em
     resourceLoader,
     sessionManager,
     // 不设 noTools：启用 Pi 内置的 read/bash/edit/write 四个工具 + 下面的自定义图像工具
-    thinkingLevel: 'off',
+    // 思考级别可配置；模型不支持 reasoning 时 Pi 自动忽略，不会产生 thinking_delta
+    thinkingLevel: (config.chatThinking || 'off') as any,
     customTools: [
       {
         name: 'generate_image',
@@ -206,9 +207,7 @@ export async function runAgent(req: ChatRequest, skills: SkillPreset[], emit: Em
         }),
         async execute(toolCallId: string, params: any) {
           const started = Date.now();
-          emit({ type: 'tool_call', id: toolCallId, name: 'generate_image', arguments: params });
           if (!isImageConfigured()) {
-            emit({ type: 'tool_result', id: toolCallId, status: 'error', duration: Date.now() - started });
             emit({ type: 'error', code: 'MISSING_IMAGE_API_KEY', message: '尚未配置「图像 API」的 Key。请打开左侧「设置」页，在「图像 API」分组填入 Key 并保存。' });
             return { content: [{ type: 'text', text: '图像 API Key 未配置' }], details: {}, isError: true } as any;
           }
@@ -248,9 +247,7 @@ export async function runAgent(req: ChatRequest, skills: SkillPreset[], emit: Em
         }),
         async execute(toolCallId: string, params: any) {
           const started = Date.now();
-          emit({ type: 'tool_call', id: toolCallId, name: 'edit_image', arguments: params });
           if (!isImageConfigured()) {
-            emit({ type: 'tool_result', id: toolCallId, status: 'error', duration: Date.now() - started });
             emit({ type: 'error', code: 'MISSING_IMAGE_API_KEY', message: '尚未配置「图像 API」的 Key。请打开左侧「设置」页，在「图像 API」分组填入 Key 并保存。' });
             return { content: [{ type: 'text', text: '图像 API Key 未配置' }], details: {}, isError: true } as any;
           }
@@ -330,11 +327,43 @@ export async function runAgent(req: ChatRequest, skills: SkillPreset[], emit: Em
     ],
   } as any);
 
-  // 订阅 Pi 的文本增量事件 → 我们的 SSE text 事件
+  // 统一订阅 Pi 会话事件：文本、思考、工具调用/结果（内置工具与自定义工具全覆盖）
+  const pendingTools = new Map<string, { name: string; started: number }>();
   const unsubscribe = session.subscribe((event: any) => {
+    // 助手文本增量
     if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') {
       const delta = event.assistantMessageEvent.delta;
       if (delta) emit({ type: 'text', delta });
+    }
+    // 助手思考增量（模型支持 reasoning 且开启 chatThinking 时才有）
+    if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'thinking_delta') {
+      const delta = event.assistantMessageEvent.delta;
+      if (delta) emit({ type: 'thinking', delta });
+    }
+    // 工具开始：所有工具（含 Pi 内置 read/bash/edit/write 与自定义图像工具）
+    if (event.type === 'tool_execution_start') {
+      pendingTools.set(event.toolCallId, { name: event.toolName, started: Date.now() });
+      emit({
+        type: 'tool_call',
+        id: event.toolCallId,
+        name: event.toolName,
+        arguments: (event.args && typeof event.args === 'object' ? event.args : {}) as Record<string, unknown>,
+      });
+    }
+    // 工具结束：带出结果文本，前端工具卡片可展示
+    if (event.type === 'tool_execution_end') {
+      const meta = pendingTools.get(event.toolCallId);
+      pendingTools.delete(event.toolCallId);
+      const duration = typeof event.durationMs === 'number'
+        ? event.durationMs
+        : meta ? Date.now() - meta.started : 0;
+      emit({
+        type: 'tool_result',
+        id: event.toolCallId,
+        status: event.isError ? 'error' : 'ok',
+        duration,
+        result: summarizeToolResult(event.result),
+      });
     }
   });
 
@@ -354,14 +383,45 @@ export async function runAgent(req: ChatRequest, skills: SkillPreset[], emit: Em
   }
 }
 
-/** 工具异常：发 tool_result(error) + error 事件，返回给模型错误文本继续对话 */
+/**
+ * 把工具返回值压缩为可展示的纯文本，供前端工具卡片显示。
+ * 只取 text 内容块与轻量 details；跳过 base64 图片数据，避免 SSE 暴涨。
+ */
+function summarizeToolResult(result: any): string {
+  if (result == null) return '';
+  if (typeof result === 'string') return result.slice(0, 2000);
+  const parts: string[] = [];
+  const content = Array.isArray(result.content) ? result.content : [];
+  for (const block of content) {
+    if (!block) continue;
+    if (block.type === 'text' && typeof block.text === 'string') parts.push(block.text);
+    else if (typeof block === 'string') parts.push(block);
+  }
+  const details = result.details;
+  if (details && typeof details === 'object') {
+    // 自定义图像工具的 details.images 里是 url/id，保留摘要；丢弃任何 data/base64 字段
+    if (Array.isArray(details.images)) {
+      parts.push(`images: ${details.images.map((i: any) => i.id || i.url || '?').join(', ')}`);
+    } else {
+      for (const [k, v] of Object.entries(details)) {
+        if (/data|base64|buffer/i.test(k)) continue;
+        if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') parts.push(`${k}: ${v}`);
+      }
+    }
+  }
+  if (!parts.length && typeof result === 'object') {
+    try { parts.push(JSON.stringify(result).slice(0, 500)); } catch { /* ignore */ }
+  }
+  return parts.join('\n').slice(0, 2000);
+}
+
+/** 工具异常：发 error 事件，返回给模型错误文本继续对话（tool_result 由统一订阅发出） */
 function toolError(err: any, emit: Emit, toolCallId: string, started: number) {
   const apiErr = err?.code
     ? err
     : err instanceof z.ZodError
       ? new ApiError('INVALID_TOOL_ARGS', `工具参数校验失败：${err.errors.map((e) => e.message).join('; ')}`, 400)
       : normalizeError(err);
-  emit({ type: 'tool_result', id: toolCallId, status: 'error', duration: Date.now() - started });
   emit({ type: 'error', code: apiErr.code, message: apiErr.message });
   return {
     content: [{ type: 'text', text: `工具执行失败：${apiErr.message}` }],
