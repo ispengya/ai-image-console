@@ -1,7 +1,5 @@
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import OpenAI from 'openai';
+import OpenAI, { toFile } from 'openai';
 import { config } from '../config.js';
 import type { ChatAttachment } from '../types.js';
 
@@ -77,11 +75,19 @@ export async function generateImages(o: GenerateOpts): Promise<string[]> {
   }
 }
 
-function base64ToTempFile(base64: string, mime: string): string {
-  const ext = mime.includes('jpeg') ? 'jpg' : mime.includes('webp') ? 'webp' : 'png';
-  const file = path.join(os.tmpdir(), `iw-edit-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`);
-  fs.writeFileSync(file, Buffer.from(base64, 'base64'));
-  return file;
+/** 从 base64 魔数推断图片 MIME，上传附件未带可靠 MIME 时兜底 */
+function sniffImageMime(base64: string): string {
+  if (base64.startsWith('iVBORw0KGgo')) return 'image/png';
+  if (base64.startsWith('/9j/')) return 'image/jpeg';
+  if (base64.startsWith('UklGR')) return 'image/webp';
+  if (base64.startsWith('R0lGOD')) return 'image/gif';
+  return 'image/png';
+}
+
+function normalizeImageMime(mime?: string | null): string | null {
+  const m = mime?.toLowerCase().split(';')[0].trim();
+  if (m === 'image/jpg') return 'image/jpeg';
+  return m === 'image/png' || m === 'image/jpeg' || m === 'image/webp' ? m : null;
 }
 
 type EditOpts = {
@@ -97,15 +103,20 @@ type EditOpts = {
 
 /** 图片编辑：原图为上传图或最近生成的图，multipart 传参 */
 export async function editImages(o: EditOpts): Promise<string[]> {
-  const source = o.attachment?.data || (o.lastImageBuffer ? o.lastImageBuffer.toString('base64') : null);
-  if (!source) {
+  const raw = o.attachment?.data || (o.lastImageBuffer ? o.lastImageBuffer.toString('base64') : null);
+  if (!raw) {
     throw new ApiError('NO_SOURCE_IMAGE', '没有可用于编辑的图片：请先上传图片或先生成一张图', 400);
   }
-  const file = base64ToTempFile(source, o.attachment?.mimeType ?? 'image/png');
+  // ReadStream 无法让 OpenAI SDK 推断 MIME（会被发成 application/octet-stream，部分端点直接 400），
+  // 用 toFile 显式给出文件名与 Content-Type。
+  const source = raw.replace(/^data:image\/[a-z0-9.+-]+;base64,/i, '');
+  const mime = normalizeImageMime(o.attachment?.mimeType) ?? sniffImageMime(source);
+  const ext = mime === 'image/jpeg' ? 'jpg' : mime.slice('image/'.length);
+  const image = await toFile(Buffer.from(source, 'base64'), `source.${ext}`, { type: mime });
   try {
     const params: any = {
       model: o.model,
-      image: fs.createReadStream(file),
+      image,
       prompt: o.prompt,
       n: o.n,
       size: o.size === 'auto' ? undefined : o.size,
@@ -120,8 +131,6 @@ export async function editImages(o: EditOpts): Promise<string[]> {
   } catch (err: any) {
     if (err instanceof ApiError) throw err;
     throw normalizeError(err);
-  } finally {
-    try { fs.unlinkSync(file); } catch { /* ignore */ }
   }
 }
 
