@@ -264,6 +264,13 @@
   }
   .msg.tool .t-result:empty { display: none; }
   .msg.tool .t-result-label { color: var(--muted-foreground); font-size: 10px; letter-spacing: .04em; display: block; margin-bottom: 4px; }
+  .msg.tool .t-empty { padding: 6px 14px; font-size: 10.5px; color: var(--muted-foreground); font-family: var(--mono); opacity: .7; }
+  /* 已完成且无参数、无结果的工具：收敛成极简一行，避免堆叠出一长串横线 */
+  .msg.tool.compact { box-shadow: none; background: transparent; }
+  .msg.tool.compact .t-head { border-bottom: none; padding: 2px 2px; background: transparent; font-size: 10.5px; }
+  .msg.tool.compact .t-head .t-status { display: none; }
+  .msg.tool.compact .t-empty,
+  .msg.tool.compact .t-result { display: none; }
   /* 思考过程：流式显示、结束后淡化 */
   .msg.thinking {
     align-self: flex-start; max-width: 100%; color: var(--muted-foreground);
@@ -809,7 +816,7 @@ var API_BASE = ''; // 前端由后端同源托管，API 相对路径即可
 var convMessages = [];  // 当前会话的对话消息 [{role, content}]（不能叫 history，会撞 window.history）
 var imageHistory = [];  // 当前会话的历史图片
 var chatUpload = null;  // { dataURL, name, mimeType } 待编辑的上传图
-var busy = false;
+var busyConvs = {};     // 正在执行任务的会话集合 { convId: true }，支持多会话并发
 var conversations = []; // 会话列表 [{id, title, imageCount, thumbUrl, ...}]
 var currentConvId = ''; // 当前会话 ID（localStorage 持久化）
 var WELCOME_HTML = '';  // 对话区初始欢迎语
@@ -1028,14 +1035,18 @@ function parseSlash(text){
 
 /* ================= Agent 响应流程（真实 SSE 调用后端） ================= */
 async function agentRespond(text, uploadSnapshot, slash){
-  if (busy) { addMsg('bot', '上一个任务还在进行中，请稍候。'); return; }
-  busy = true;
-  $('chat-send').disabled = true;
+  var taskConvId = currentConvId;
+  if (busyConvs[taskConvId]) { addMsg('bot', '当前会话有任务进行中，请稍候。'); return; }
+  busyConvs[taskConvId] = true;
+  function isActive(){ return currentConvId === taskConvId; }
+  function syncSendState(){ if (isActive()) $('chat-send').disabled = !!busyConvs[currentConvId]; }
+  syncSendState();
+  markBusyInList();
 
   /* /skill 指令但未匹配 */
   if (slash && !slash.skill) {
     addMsg('bot', '未找到 skill「/' + slash.name + '」（或已停用）。输入 / 查看已安装列表，或到右侧「Skill 库」检查。');
-    busy = false; $('chat-send').disabled = false;
+    delete busyConvs[taskConvId]; syncSendState(); markBusyInList();
     return;
   }
 
@@ -1103,17 +1114,22 @@ async function agentRespond(text, uploadSnapshot, slash){
         if (!dataLine) continue;
         var ev;
         try { ev = JSON.parse(dataLine); } catch (e) { continue; }
+        // 已切到别的会话：本轮事件只让后端落库，不写入当前会话的 DOM
+        if (!isActive()) continue;
         switch (ev.type || eventName) {
           case 'status':
             ensureStatus(ev.text);
             break;
           case 'tool_call':
+            var args = ev.arguments || {};
+            var hasArgs = Object.keys(args).length > 0;
             var builtin = ['generate_image', 'edit_image'].indexOf(ev.name) < 0;
             var card = addMsg('tool',
               '<div class="t-head"><span>tool_call</span><span class="fn">' + escapeHtml(ev.name) + '</span>' +
               (builtin ? '<span class="skill-tag">built-in</span>' : '<span class="skill-tag">image</span>') +
-              '<span class="t-status">running</span></div><pre>' + escapeHtml(JSON.stringify(ev.arguments, null, 2)) + '</pre>' +
-              '<div class="t-result"></div>');
+              '<span class="t-status">running</span></div>' +
+              (hasArgs ? '<pre>' + escapeHtml(JSON.stringify(args, null, 2)) + '</pre>' : '') +
+              '<div class="t-result"></div>' + (hasArgs ? '' : '<div class="t-empty">（无参数）</div>'));
             toolCards[ev.id] = card;
             ensureStatus('执行 ' + ev.name + '…');
             break;
@@ -1123,9 +1139,13 @@ async function agentRespond(text, uploadSnapshot, slash){
               var st = tc.querySelector('.t-status');
               st.textContent = (ev.status === 'ok' ? 'ok' : 'error') + ' · ' + ((ev.duration || 0) / 1000).toFixed(1) + 's';
               st.classList.add(ev.status === 'ok' ? 'ok' : 'error');
+              var emptyEl = tc.querySelector('.t-empty');
+              if (emptyEl) emptyEl.remove();
               var resultBox = tc.querySelector('.t-result');
               if (resultBox && ev.result) {
                 resultBox.innerHTML = '<span class="t-result-label">result</span>' + escapeHtml(ev.result);
+              } else if (ev.status === 'ok' && !tc.querySelector('pre')) {
+                tc.classList.add('compact'); // 无参数无结果，收敛成一行
               }
             }
             break;
@@ -1141,7 +1161,9 @@ async function agentRespond(text, uploadSnapshot, slash){
             var img = ev.image;
             addMsg('imgmsg', imgMsgHtml(img));
             imageHistory.unshift(img);
+            imageById[img.id] = img;
             prependGalleryCard(img.prompt, img.url, img.size, img.quality, img.index, img.id);
+            updateCount();
             break;
           case 'text':
             ensureBotText();
@@ -1153,24 +1175,27 @@ async function agentRespond(text, uploadSnapshot, slash){
             break;
           case 'done':
             if (statusMsg) statusMsg.remove();
-            if (ev.conversationId) currentConvId = ev.conversationId;
-            saveCurrentConv();
             loadConversations();
             break;
         }
       }
     }
-    if (botTextMsg && botText.trim()) botTextMsg.innerHTML = renderMarkdown(botText);
-    if (thinkMsg) thinkMsg.classList.add('done');
-    if (botText) convMessages.push({ role: 'assistant', content: botText });
-    if (uploadSnapshot) clearAttach();
+    if (isActive()) {
+      if (botTextMsg && botText.trim()) botTextMsg.innerHTML = renderMarkdown(botText);
+      if (thinkMsg) thinkMsg.classList.add('done');
+      if (botText) convMessages.push({ role: 'assistant', content: botText });
+      if (uploadSnapshot) clearAttach();
+    }
   } catch (err) {
-    typing.remove();
-    if (statusMsg) statusMsg.remove();
-    addMsg('bot', '请求失败：' + ((err && err.message) || String(err)));
+    if (isActive()) {
+      typing.remove();
+      if (statusMsg) statusMsg.remove();
+      addMsg('bot', '请求失败：' + ((err && err.message) || String(err)));
+    }
   } finally {
-    busy = false;
-    $('chat-send').disabled = false;
+    delete busyConvs[taskConvId];
+    syncSendState();
+    markBusyInList();
   }
 }
 
@@ -1310,7 +1335,8 @@ function prependGalleryCard(prompt, url, size, quality, index, id){
   $('gallery').prepend(card);
 }
 function updateCount(){
-  $('result-count').textContent = convMessages.length > 0 ? convMessages.length + ' items' : '';
+  var n = imageHistory.length;
+  $('result-count').textContent = n > 0 ? n + (n === 1 ? ' item' : ' items') : '';
 }
 
 /* ================= Skill 库视图 ================= */
@@ -1548,21 +1574,38 @@ function renderConversations(){
       removeConversation(btn.dataset.del);
     });
   });
+  markBusyInList();
 }
 function switchConversation(id){
-  if (id === currentConvId || busy) return;
+  if (id === currentConvId) return;
   currentConvId = id;
   saveCurrentConv();
   renderConversations();
   clearChatAndGallery();
   loadHistoryFromServer();
+  syncSendStateForCurrent();
 }
 function newConversation(){
-  if (busy) { addMsg('bot', '上一个任务还在进行中，请稍候。'); return; }
   currentConvId = newConvId();
   saveCurrentConv();
   renderConversations();
   clearChatAndGallery();
+  syncSendStateForCurrent();
+}
+/* 当前会话是否忙：控制发送框；后台会话的任务继续跑，不阻断切换 */
+function syncSendStateForCurrent(){
+  $('chat-send').disabled = !!busyConvs[currentConvId];
+}
+/* 会话列表里给正在执行的会话加「进行中」标记 */
+function markBusyInList(){
+  document.querySelectorAll('#conv-list .conv-item').forEach(function(item){
+    var running = !!busyConvs[item.dataset.id];
+    var sub = item.querySelector('.ci-sub');
+    if (!sub) return;
+    var base = sub.getAttribute('data-base') || sub.textContent;
+    sub.setAttribute('data-base', base);
+    sub.textContent = running ? '生成中…' : base;
+  });
 }
 function clearChatAndGallery(){
   convMessages = [];

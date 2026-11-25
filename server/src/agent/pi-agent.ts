@@ -98,6 +98,9 @@ ${skillTag ? `本次使用了 skill ${skillTag}，prompt 已按模板展开，�
 model=${s.model}, size=${s.size}, quality=${s.quality}, n=${s.n}, output_format=${s.output_format}, background=${s.background}
 
 用户明确说「横版/竖版」「透明背景」「来 N 张」「高质量/快速」时覆盖对应默认值。${attachmentHint}
+
+需要澄清时先提问，不要调用任何工具：当风格、主体、配色、版式等关键信息缺失，导致生成结果会很不确定时，直接用文字向用户提 1-3 个简短问题（可给出推荐选项，例如「风格要 A 极简 / B 写实？不指定我默认 A」），然后停止本轮回复等待用户回答；不要边猜边生成。用户回答后再在下一轮按答案调用工具。若只是小细节 unspecified，按默认值执行即可，不必追问。
+
 回复保持简洁，中文回答。生成完图片后简短说明即可，不要重复输出参数。
 
 最近的对话历史（仅供参考）：
