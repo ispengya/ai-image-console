@@ -4,6 +4,7 @@ import { runAgent } from '../agent/pi-agent.js';
 import { loadSkills } from '../skills/loader.js';
 import { isChatConfigured } from '../config.js';
 import { storage, isValidConversationId } from '../services/storage.js';
+import { startTask, endTask } from '../services/task-registry.js';
 import type { SseEvent } from '../types.js';
 
 const bodySchema = z.object({
@@ -91,7 +92,12 @@ export async function chatRoutes(app: FastifyInstance) {
         emit({ type: 'error', code: 'MISSING_CHAT_API_KEY', message: '尚未配置「对话 API」的 Key。请打开左侧「设置」页，在「对话 API」分组填入 Key 并保存。' });
       } else {
         const skills = loadSkills();
-        await runAgent({ ...parsed.data, sourceImageId } as any, skills, emit);
+        startTask(conversationId); // 标记运行中，前端刷新后可经 /api/tasks 恢复
+        try {
+          await runAgent({ ...parsed.data, sourceImageId } as any, skills, emit);
+        } finally {
+          endTask(conversationId);
+        }
       }
       const replyText = assistantText.trim() || errors[0] || '';
       if (replyText) {

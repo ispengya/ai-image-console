@@ -1824,10 +1824,29 @@ function loadServerConfig(){
     .catch(function(err){ console.warn('加载服务端配置失败', err); });
 }
 
+/* 从后端恢复"哪些会话还在后台跑"：刷新页面后侧栏仍能显示旋转图标 */
+var knownRunning = {}; // 上一次轮询的运行集合，用于检测刚结束的任务（点亮绿点）
+function loadRunningTasks(){
+  return fetch(API_BASE + '/api/tasks').then(function(r){ return r.json(); }).then(function(data){
+    var now = {};
+    (data.running || []).forEach(function(t){ if (t && t.conversationId) now[t.conversationId] = true; });
+    // 之前在跑、现在结束、且不是当前会话 → 有新消息未读
+    Object.keys(knownRunning).forEach(function(id){
+      if (!now[id] && id !== currentConvId) markUnread(id);
+    });
+    knownRunning = now;
+    Object.keys(now).forEach(function(id){ busyConvs[id] = true; }); // 恢复运行标记
+    markBusyInList();
+    syncSendStateForCurrent();
+  }).catch(function(){ /* 后端未就绪时忽略 */ });
+}
+
 // 会话列表与 skill、配置并行加载；当前会话图片随后加载（后端会在首条消息时自动建会话）
 Promise.all([loadSkillsFromServer(), loadConversations(), loadServerConfig()]).then(function(){
   loadHistoryFromServer();
 });
+loadRunningTasks();
+setInterval(loadRunningTasks, 3000); // 每 3 秒同步后台任务状态
 </script>
 </body>
 </html>

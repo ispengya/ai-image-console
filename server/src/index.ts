@@ -9,6 +9,7 @@ import { configRoutes } from './routes/config.js';
 import { skillRoutes } from './routes/skills.js';
 import { imageRoutes } from './routes/images.js';
 import { conversationRoutes } from './routes/conversations.js';
+import { taskRoutes } from './routes/tasks.js';
 import { loadSkills } from './skills/loader.js';
 
 const app = Fastify({ logger: true, bodyLimit: 30 * 1024 * 1024 });
@@ -19,6 +20,7 @@ await app.register(configRoutes);
 await app.register(skillRoutes);
 await app.register(imageRoutes);
 await app.register(conversationRoutes);
+await app.register(taskRoutes);
 
 // 首页显式返回 index.html（避免把整个项目根目录暴露成静态文件）
 const frontendDir = path.resolve(import.meta.dirname, '..', '..');

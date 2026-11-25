@@ -12,7 +12,6 @@ import {
   SessionManager,
   DefaultResourceLoader,
   ModelRuntime,
-  getAgentDir,
 } from '@earendil-works/pi-coding-agent';
 import { getModel } from '@earendil-works/pi-ai/compat';
 import { Type } from 'typebox';
@@ -174,11 +173,20 @@ export async function runAgent(req: ChatRequest, skills: SkillPreset[], emit: Em
   }
 
   const systemPrompt = buildSystemPrompt(req, skills, req.skill ? `/${req.skill}` : '', !!visionImage);
+  // 隔离本机 Pi 用户配置：默认 getAgentDir() 会读 ~/.pi/agent（settings/extensions/skills），
+  // 用户本机装的扩展会在这里被加载并可能报错。本项目只用项目内 server/skills 与内置文件工具。
+  const isolatedAgentDir = path.join(process.cwd(), 'server', 'data', 'pi-agent');
+  fs.mkdirSync(isolatedAgentDir, { recursive: true });
   const resourceLoader = new DefaultResourceLoader({
     cwd: process.cwd(),
-    agentDir: getAgentDir(),
+    agentDir: isolatedAgentDir,
     systemPromptOverride: () => systemPrompt,
     appendSystemPromptOverride: () => [],
+    noExtensions: true,      // 不加载 settings.json / ~/.pi 里的任何扩展
+    noSkills: true,          // 画图 skill 由 server/skills 自己注入
+    noPromptTemplates: true,
+    noThemes: true,
+    noContextFiles: true,
   });
   await resourceLoader.reload();
 
