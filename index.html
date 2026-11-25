@@ -169,6 +169,17 @@
   }
   nav .conv-item:hover .ci-del { opacity: .7; }
   nav .conv-item .ci-del:hover { opacity: 1; color: var(--destructive); }
+  /* 删除会话：行内确认，不用浏览器弹窗 */
+  nav .conv-item.confirming { padding: 5px 8px; gap: 6px; cursor: default; }
+  nav .conv-item.confirming:hover { background: var(--sidebar-accent); }
+  nav .conv-item .ci-confirm-text { flex: 1; min-width: 0; font-size: 10.5px; line-height: 1.3; color: var(--muted-foreground); }
+  nav .conv-item .ci-confirm-btn {
+    flex-shrink: 0; border: 1px solid var(--border); border-radius: 6px; padding: 2px 7px;
+    font-size: 10.5px; line-height: 1.5; cursor: pointer; background: var(--card); color: var(--muted-foreground);
+  }
+  nav .conv-item .ci-confirm-btn:hover { background: var(--accent); color: var(--foreground); }
+  nav .conv-item .ci-confirm-btn.danger { border-color: transparent; background: var(--destructive); color: #fff; }
+  nav .conv-item .ci-confirm-btn.danger:hover { opacity: .88; color: #fff; }
   nav .conv-empty { font-size: 11px; color: var(--muted-foreground); padding: 8px 10px; }
   nav .nav-bottom { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--sidebar-border); }
 
@@ -1667,7 +1678,21 @@ function renderConversations(){
   el.querySelectorAll('.ci-del').forEach(function(btn){
     btn.addEventListener('click', function(e){
       e.stopPropagation();
-      removeConversation(btn.dataset.del);
+      var item = btn.closest('.conv-item');
+      if (!item || item.classList.contains('confirming')) return;
+      item.classList.add('confirming');
+      item.title = '';
+      item.innerHTML = '<span class="ci-confirm-text">删除此会话及全部图片？不可恢复</span>' +
+        '<button class="ci-confirm-btn" data-act="cancel">取消</button>' +
+        '<button class="ci-confirm-btn danger" data-act="delete">删除</button>';
+      item.querySelector('[data-act="cancel"]').addEventListener('click', function(ev){
+        ev.stopPropagation();
+        renderConversations();
+      });
+      item.querySelector('[data-act="delete"]').addEventListener('click', function(ev){
+        ev.stopPropagation();
+        removeConversation(btn.dataset.del);
+      });
     });
   });
   markBusyInList();
@@ -1729,7 +1754,6 @@ function clearChatAndGallery(){
   clearAttach();
 }
 function removeConversation(id){
-  if (!confirm('确定删除这个会话及其所有图片产物吗？此操作不可恢复。')) return;
   fetch(API_BASE + '/api/conversations/' + encodeURIComponent(id), { method: 'DELETE' })
     .then(function(r){ return r.json(); })
     .then(function(){
