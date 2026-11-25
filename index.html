@@ -282,6 +282,9 @@
 
   /* ---------- 底部输入区 ---------- */
   .chat-foot { border-top: 1px solid var(--border); padding: 14px 18px 16px; position: relative; background: var(--card); }
+  .chat-foot.drop-active { outline: 2px dashed var(--ring); outline-offset: -6px; background: var(--accent); }
+  .img-wrap img[draggable="true"], .card .thumb img[draggable="true"] { cursor: grab; }
+  .img-wrap img[draggable="true"]:active, .card .thumb img[draggable="true"]:active { cursor: grabbing; }
 
   /* 生成设置（可折叠） */
   .settings { display: none; border: 1px solid var(--border); border-radius: 12px; margin-bottom: 12px; overflow: hidden; background: var(--card); }
@@ -618,7 +621,7 @@
         <div class="attach-chip" id="attach-chip">
           <img id="attach-thumb" alt="">
           <span class="a-name" id="attach-name"></span>
-          <span class="a-tag">edit source</span>
+          <span class="a-tag" id="attach-tag">edit source</span>
           <button class="a-remove" id="attach-remove" title="移除">×</button>
         </div>
 
@@ -1027,7 +1030,9 @@ async function agentRespond(text, uploadSnapshot, slash){
       systemPrompt: CONFIG.system || '',
       settings: readSettings(),
       skill: slash && slash.skill ? slash.skill.name : null,
-      attachment: uploadSnapshot ? {
+      // 产物引用：只传 id，不重复上传；普通上传图才走 base64
+      editImageId: uploadSnapshot && uploadSnapshot.imageId ? uploadSnapshot.imageId : null,
+      attachment: uploadSnapshot && !uploadSnapshot.imageId ? {
         name: uploadSnapshot.name,
         mimeType: uploadSnapshot.mimeType,
         data: uploadSnapshot.dataURL.split(',')[1] || ''
@@ -1089,7 +1094,7 @@ async function agentRespond(text, uploadSnapshot, slash){
             var img = ev.image;
             addMsg('imgmsg', imgMsgHtml(img));
             imageHistory.unshift(img);
-            prependGalleryCard(img.prompt, img.url, img.size, img.quality, img.index);
+            prependGalleryCard(img.prompt, img.url, img.size, img.quality, img.index, img.id);
             break;
           case 'text':
             ensureBotText();
@@ -1122,18 +1127,31 @@ async function agentRespond(text, uploadSnapshot, slash){
 }
 
 /* ================= 附件（上传待编辑图片） ================= */
+function showAttachChip(upload){
+  chatUpload = upload;
+  $('attach-thumb').src = upload.dataURL;
+  $('attach-name').textContent = upload.name;
+  $('attach-tag').textContent = upload.imageId ? '产物 #' + (upload.index || '') : 'edit source';
+  $('attach-chip').classList.add('show');
+  $('chat-input').placeholder = upload.imageId
+    ? '已选择会话产物，说明修改要求（如：把背景换成星空）'
+    : '原图已就绪，说明修改要求（如：把背景换成星空）';
+  $('chat-input').focus();
+}
 function attachFile(file){
   if (!file || !/^image\//.test(file.type || '')) return false;
   var reader = new FileReader();
   reader.onload = function(ev){
-    chatUpload = { dataURL: ev.target.result, name: file.name || 'pasted-image.png', mimeType: file.type || 'image/png' };
-    $('attach-thumb').src = chatUpload.dataURL;
-    $('attach-name').textContent = chatUpload.name;
-    $('attach-chip').classList.add('show');
-    $('chat-input').placeholder = '原图已就绪，说明修改要求（如：把背景换成星空）';
-    $('chat-input').focus();
+    showAttachChip({ dataURL: ev.target.result, name: file.name || 'pasted-image.png', mimeType: file.type || 'image/png', imageId: null, index: 0 });
   };
   reader.readAsDataURL(file);
+  return true;
+}
+/** 把会话内产物（画廊/聊天区图片）设为编辑来源：引用 id，不重复上传 */
+function attachImageRef(id){
+  var img = imageHistory.find(function(x){ return x.id === id; });
+  if (!img) return false;
+  showAttachChip({ dataURL: img.url, name: (img.prompt || '会话产物').slice(0, 24), mimeType: 'image/png', imageId: img.id, index: img.index || 0 });
   return true;
 }
 $('btn-attach').addEventListener('click', function(){ $('file-input').click(); });
@@ -1158,13 +1176,43 @@ $('chat-input').addEventListener('paste', function(e){
 // 拖放图片到对话区也能添加
 $('chat-msgs').addEventListener('dragover', function(e){ e.preventDefault(); });
 $('chat-msgs').addEventListener('drop', function(e){
-  if (!e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return;
+  if (!e.dataTransfer) return;
+  var innerId = e.dataTransfer.getData('application/x-image-id');
+  if (innerId && attachImageRef(innerId)) { e.preventDefault(); return; }
+  if (!e.dataTransfer.files || !e.dataTransfer.files.length) return;
   e.preventDefault();
   attachFile(e.dataTransfer.files[0]);
+});
+
+// 产物（画廊/聊天区图片）可直接拖到发送框作为编辑来源
+document.addEventListener('dragstart', function(e){
+  var img = e.target && e.target.closest && e.target.closest('img[data-image-id]');
+  if (!img || !img.getAttribute('data-image-id')) return;
+  e.dataTransfer.setData('application/x-image-id', img.getAttribute('data-image-id'));
+  e.dataTransfer.effectAllowed = 'copy';
+});
+var dropZone = document.querySelector('.chat-foot');
+dropZone.addEventListener('dragover', function(e){
+  if (!e.dataTransfer) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+  dropZone.classList.add('drop-active');
+});
+dropZone.addEventListener('dragleave', function(e){
+  if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('drop-active');
+});
+dropZone.addEventListener('drop', function(e){
+  if (!e.dataTransfer) return;
+  e.preventDefault();
+  dropZone.classList.remove('drop-active');
+  var innerId = e.dataTransfer.getData('application/x-image-id');
+  if (innerId && attachImageRef(innerId)) return;
+  if (e.dataTransfer.files && e.dataTransfer.files.length) attachFile(e.dataTransfer.files[0]);
 });
 function clearAttach(){
   chatUpload = null;
   $('attach-chip').classList.remove('show');
+  $('attach-tag').textContent = 'edit source';
   $('chat-input').placeholder = '描述画面生成图片；输入 / 调用 skill；或先上传图片再说修改要求';
 }
 $('attach-remove').addEventListener('click', clearAttach);
@@ -1201,15 +1249,15 @@ function seqBadge(index){
   return index ? '<span class="img-seq">' + index + '</span>' : '';
 }
 function imgMsgHtml(img){
-  return '<div class="imgs"><div class="img-wrap"><img src="' + img.url + '" alt="" data-image-cap="' +
+  return '<div class="imgs"><div class="img-wrap"><img src="' + img.url + '" alt="" draggable="true" data-image-id="' + img.id + '" data-image-cap="' +
     escapeHtml(img.prompt + ' · ' + img.size + ' · ' + img.quality + ' · ' + img.model) + '">' +
     seqBadge(img.index) + '</div></div>';
 }
-function prependGalleryCard(prompt, url, size, quality, index){
+function prependGalleryCard(prompt, url, size, quality, index, id){
   $('empty-state').style.display = 'none';
   var card = document.createElement('div');
   card.className = 'card';
-  card.innerHTML = '<div class="thumb"><img src="' + url + '" alt="">' + seqBadge(index) + '</div>' +
+  card.innerHTML = '<div class="thumb"><img src="' + url + '" alt="" draggable="true" data-image-id="' + (id || '') + '">' + seqBadge(index) + '</div>' +
     '<div class="meta"><div class="p">' + escapeHtml(prompt) + '</div><div>' + size + ' · ' + quality + '</div></div>';
   $('gallery').prepend(card);
 }
@@ -1538,7 +1586,7 @@ function loadHistoryFromServer(){
     imageHistory.forEach(function(img){ imageById[img.id] = img; });
     renderStoredMessages(res[0].messages || [], imageById);
     $('gallery').innerHTML = '';
-    imageHistory.slice().reverse().forEach(function(img){ prependGalleryCard(img.prompt, img.url, img.size, img.quality, img.index); });
+    imageHistory.slice().reverse().forEach(function(img){ prependGalleryCard(img.prompt, img.url, img.size, img.quality, img.index, img.id); });
     if (imageHistory.length) $('empty-state').style.display = 'none';
   }).catch(function(err){ console.warn('加载历史失败', err); });
 }

@@ -50,6 +50,8 @@ export interface ChatRequest {
   attachment?: ChatAttachment | null;
   /** 路由层已落盘的上传原图 id（kind='source'），agent 直接复用，不再重复落盘 */
   sourceImageId?: string | null;
+  /** 用户从画廊/聊天区拖入的产物图 id，作为 edit_image 的编辑来源 */
+  editImageId?: string | null;
   settings: {
     model: string;
     size: string;

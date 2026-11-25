@@ -86,6 +86,7 @@ ${customPrompt}
 
 本会话已生成的图片（用户说的编号对应这里的「第N张」）：
 ${imageLines}
+${req.editImageId ? `\n用户拖入了一张产物图（id=${req.editImageId}）要求编辑，直接以它为目标，无需再推断「第几张」。` : ''}
 
 你还拥有 Pi 的文件工具 read / bash / edit / write（工作目录是项目根目录）。当 skill 需要了解产品上下文（如 README、package.json、设计文档）时，先用这些工具读取相关文件再提案，不要仅凭目录名猜测。除用户明确要求外，不要修改任何文件。
 
@@ -146,6 +147,9 @@ export async function runAgent(req: ChatRequest, skills: SkillPreset[], emit: Em
   if (config.chatVision) {
     if (req.attachment) {
       visionImage = { data: req.attachment.data, mimeType: req.attachment.mimeType };
+    } else if (req.editImageId) {
+      const data = storage.getImageData(req.editImageId);
+      if (data) visionImage = { data: data.base64, mimeType: data.mime };
     } else {
       const lastSource = storage.getLastSource(conversationId);
       if (lastSource) {
@@ -254,12 +258,18 @@ export async function runAgent(req: ChatRequest, skills: SkillPreset[], emit: Em
           try {
             const merged = mergeParams(req.settings, skillOverrides, params);
             const parsed = editImageParams.parse(merged);
-            // 选图优先级：显式 image_id / image_index > 上传图 > 最近生成图
+            // 选图优先级：用户拖入的 editImageId > 模型 image_id / image_index > 上传图 > 最近生成图
             // 只在本会话产物里定位，避免跨会话串图
             const sessionImages = storage.listImages(200, conversationId, false);
             let selected: { id: string; buffer: Buffer } | null = null;
 
-            if (parsed.image_id) {
+            if (req.editImageId) {
+              const target = sessionImages.find((i) => i.id === req.editImageId);
+              if (!target) throw new ApiError('NO_SOURCE_IMAGE', '拖入的图片不在当前会话中，请重新拖入', 400);
+              const found = storage.getImagePath(target.id);
+              if (!found) throw new ApiError('NO_SOURCE_IMAGE', '拖入的图片文件不存在', 400);
+              selected = { id: target.id, buffer: fs.readFileSync(found.filepath) };
+            } else if (parsed.image_id) {
               const target = sessionImages.find((i) => i.id === parsed.image_id);
               if (!target) throw new ApiError('NO_SOURCE_IMAGE', `当前会话中找不到 id 为 ${parsed.image_id} 的图片`, 400);
               const found = storage.getImagePath(target.id);

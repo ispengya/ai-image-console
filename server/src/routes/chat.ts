@@ -17,6 +17,8 @@ const bodySchema = z.object({
     data: z.string().min(1),
   }).nullable().optional(),
   skill: z.string().nullable().optional(),
+  /** 拖入的会话内产物图 id，作为编辑来源（不重新落盘上传图） */
+  editImageId: z.string().optional().nullable(),
   settings: z.object({
     model: z.string(),
     size: z.string(),
@@ -60,8 +62,9 @@ export async function chatRoutes(app: FastifyInstance) {
       role: 'user',
       content: parsed.data.message,
       skill: parsed.data.skill || undefined,
-      attachmentName: parsed.data.attachment?.name,
-      attachmentImageId: sourceImageId ?? undefined,
+      attachmentName: parsed.data.attachment?.name || (parsed.data.editImageId ? '引用的产物图' : undefined),
+      // 产物引用直接复用已有图片 id，历史刷新时同样能还原缩略图
+      attachmentImageId: sourceImageId ?? parsed.data.editImageId ?? undefined,
     });
 
     reply.raw.writeHead(200, {
