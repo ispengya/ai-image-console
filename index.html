@@ -154,6 +154,15 @@
     background: transparent; border: 1px solid var(--border); color: var(--muted-foreground);
     font-size: 10px; font-family: var(--mono);
   }
+  nav .conv-item .ci-running { display: none; align-items: center; flex-shrink: 0; }
+  nav .conv-item .ci-running svg { width: 13px; height: 13px; color: var(--foreground); animation: ci-spin 1s linear infinite; }
+  nav .conv-item.running .ci-running { display: flex; }
+  nav .conv-item .ci-unread {
+    display: none; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    background: #16a34a; box-shadow: 0 0 0 2px rgba(22, 163, 74, .15);
+  }
+  nav .conv-item.unread .ci-unread { display: block; }
+  @keyframes ci-spin { to { transform: rotate(360deg); } }
   nav .conv-item .ci-del {
     border: none; background: none; color: var(--muted-foreground); opacity: 0; cursor: pointer;
     font-size: 15px; line-height: 1; padding: 2px 3px; flex-shrink: 0; transition: opacity .15s, color .15s;
@@ -838,6 +847,7 @@ var convMessages = [];  // 当前会话的对话消息 [{role, content}]（不�
 var imageHistory = [];  // 当前会话的历史图片
 var chatUpload = null;  // { dataURL, name, mimeType } 待编辑的上传图
 var busyConvs = {};     // 正在执行任务的会话集合 { convId: true }，支持多会话并发
+var unreadConvs = {};   // 后台会话有新消息的未读标记 { convId: true }
 var conversations = []; // 会话列表 [{id, title, imageCount, thumbUrl, ...}]
 var currentConvId = ''; // 当前会话 ID（localStorage 持久化）
 var WELCOME_HTML = '';  // 对话区初始欢迎语
@@ -1182,8 +1192,11 @@ async function agentRespond(text, uploadSnapshot, slash){
         if (!dataLine) continue;
         var ev;
         try { ev = JSON.parse(dataLine); } catch (e) { continue; }
-        // 已切到别的会话：本轮事件只让后端落库，不写入当前会话的 DOM
-        if (!isActive()) continue;
+        // 已切到别的会话：不写 DOM，但产出类事件要点亮该会话的未读绿点
+        if (!isActive()) {
+          if (ev.type === 'image' || ev.type === 'done' || (ev.type === 'text' && ev.delta)) markUnread(taskConvId);
+          continue;
+        }
         switch (ev.type || eventName) {
           case 'status':
             ensureStatus(ev.text);
@@ -1641,6 +1654,8 @@ function renderConversations(){
     return '<div class="conv-item' + active + '" data-id="' + c.id + '" title="' + escapeHtml(c.title) + '">' +
       thumb + '<span class="ci-body"><span class="ci-title">' + escapeHtml(c.title) + '</span>' +
       '<span class="ci-sub">' + sub + '</span></span>' + cnt +
+      '<span class="ci-running" title="正在生成"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg></span>' +
+      '<span class="ci-unread" title="有新消息"></span>' +
       '<button class="ci-del" data-del="' + c.id + '" title="删除会话">×</button></div>';
   }).join('');
   el.querySelectorAll('.conv-item').forEach(function(item){
@@ -1660,15 +1675,21 @@ function renderConversations(){
 function switchConversation(id){
   if (id === currentConvId) return;
   currentConvId = id;
+  delete unreadConvs[id]; // 进入会话即清除未读
   saveCurrentConv();
   renderConversations();
   clearChatAndGallery();
   loadHistoryFromServer();
+  loadConversations(); // 同步后台任务结束后会话的最新标题/图片数
   syncSendStateForCurrent();
 }
 function newConversation(){
   currentConvId = newConvId();
   saveCurrentConv();
+  // 乐观插入：服务端要等首次发消息才建会话记录，不等刷新就能看到
+  if (!conversations.some(function(c){ return c.id === currentConvId; })) {
+    conversations.unshift({ id: currentConvId, title: '新对话', imageCount: 0, thumbUrl: '' });
+  }
   renderConversations();
   clearChatAndGallery();
   syncSendStateForCurrent();
@@ -1677,10 +1698,20 @@ function newConversation(){
 function syncSendStateForCurrent(){
   $('chat-send').disabled = !!busyConvs[currentConvId];
 }
-/* 会话列表里给正在执行的会话加「进行中」标记 */
+/* 后台会话收到新消息时点亮绿点 */
+function markUnread(id){
+  if (!id || id === currentConvId || unreadConvs[id]) return; // 已点亮则不重复重绘
+  unreadConvs[id] = true;
+  markBusyInList();
+}
+/* 会话列表：运行中显示旋转图标，后台新消息显示绿点 */
 function markBusyInList(){
   document.querySelectorAll('#conv-list .conv-item').forEach(function(item){
-    var running = !!busyConvs[item.dataset.id];
+    var id = item.dataset.id;
+    var running = !!busyConvs[id];
+    var unread = !!unreadConvs[id] && id !== currentConvId;
+    item.classList.toggle('running', running);
+    item.classList.toggle('unread', unread && !running);
     var sub = item.querySelector('.ci-sub');
     if (!sub) return;
     var base = sub.getAttribute('data-base') || sub.textContent;
