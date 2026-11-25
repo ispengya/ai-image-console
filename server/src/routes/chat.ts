@@ -4,7 +4,7 @@ import { runAgent } from '../agent/pi-agent.js';
 import { loadSkills } from '../skills/loader.js';
 import { isChatConfigured } from '../config.js';
 import { storage, isValidConversationId } from '../services/storage.js';
-import { startTask, endTask } from '../services/task-registry.js';
+import { startTask, endTask, recordTaskEvent } from '../services/task-registry.js';
 import type { SseEvent } from '../types.js';
 
 const bodySchema = z.object({
@@ -83,21 +83,20 @@ export async function chatRoutes(app: FastifyInstance) {
       if (event.type === 'text') assistantText += event.delta;
       if (event.type === 'image') imageIds.push(event.image.id);
       if (event.type === 'error') errors.push(`错误 [${event.code}]：${event.message}`);
+      // 缓存事件供前端刷新后回放；必须在 startTask 之后、endTask 清理之前
+      recordTaskEvent(conversationId, event);
       reply.raw.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
     };
 
+    // 先注册任务再发第一条事件，确保刷新回放能拿到完整事件序列（含"请求已接收"）
+    startTask(conversationId);
     emit({ type: 'status', text: '请求已接收' });
     try {
       if (!isChatConfigured()) {
         emit({ type: 'error', code: 'MISSING_CHAT_API_KEY', message: '尚未配置「对话 API」的 Key。请打开左侧「设置」页，在「对话 API」分组填入 Key 并保存。' });
       } else {
         const skills = loadSkills();
-        startTask(conversationId); // 标记运行中，前端刷新后可经 /api/tasks 恢复
-        try {
-          await runAgent({ ...parsed.data, sourceImageId } as any, skills, emit);
-        } finally {
-          endTask(conversationId);
-        }
+        await runAgent({ ...parsed.data, sourceImageId } as any, skills, emit);
       }
       const replyText = assistantText.trim() || errors[0] || '';
       if (replyText) {
@@ -114,7 +113,9 @@ export async function chatRoutes(app: FastifyInstance) {
         imageIds,
       });
     } finally {
+      // done 事件也要进缓存，回放端据此结束并重载落库后的最终消息
       emit({ type: 'done', conversationId });
+      endTask(conversationId); // 任何异常路径都会清除运行标记，杜绝图标滞留
       reply.raw.end();
     }
   });

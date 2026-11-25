@@ -19,6 +19,7 @@ import { config, isImageConfigured } from '../config.js';
 import { storage } from '../services/storage.js';
 import { generateImages, editImages, ApiError, normalizeError } from '../services/openai.js';
 import { findSkill } from '../skills/loader.js';
+import { prepareContext } from '../services/context-compression.js';
 import { generateImageParams, editImageParams } from './schemas.js';
 import type { ChatRequest, SseEvent, SkillPreset, GeneratedImage } from '../types.js';
 
@@ -51,15 +52,22 @@ function mergeParams(settings: ChatRequest['settings'], skillOverrides: Record<s
 }
 
 /** 系统提示：注入 skill 列表、设置默认值、最近的对话历史 */
-function buildSystemPrompt(req: ChatRequest, skills: SkillPreset[], skillTag: string, hasVisionImage = false): string {
+function buildSystemPrompt(req: ChatRequest, skills: SkillPreset[], skillTag: string, hasVisionImage = false, context?: { summary: string; recent: Array<{ role: 'user' | 'assistant'; content: string }> }): string {
   const s = req.settings;
   const skillLines = skills
     .filter((x) => x.enabled)
     .map((x) => `- /${x.name}：${x.description}`)
     .join('\n');
-  const historyLines = req.history.slice(-10)
+  // 上下文压缩后：摘要（更早的对话）+ 最近若干条原样历史。
+  // 未传 context（例如直接调用 agent）时回退到前端 history 的最近 10 条。
+  const summary = context?.summary?.trim() || '';
+  const sourceHistory = context ? context.recent : req.history.slice(-10);
+  const historyLines = sourceHistory
     .map((h) => `${h.role === 'user' ? '用户' : '助手'}：${h.content}`)
     .join('\n');
+  const summarySection = summary
+    ? `\n更早的对话摘要（压缩保留，涉及图片编号/偏好的信息以此为准）：\n${summary}\n`
+    : '';
   // 本会话可编辑图片清单（按生成顺序编号），供模型把「第一张」映射到 image_index
   const editable = storage.listImages(100, req.conversationId, false).reverse();
   const imageLines = editable.length
@@ -102,6 +110,7 @@ model=${s.model}, size=${s.size}, quality=${s.quality}, n=${s.n}, output_format=
 
 回复保持简洁，中文回答。生成完图片后简短说明即可，不要重复输出参数。
 
+${summarySection}
 最近的对话历史（仅供参考）：
 ${historyLines || '- （无）'}`;
 }
@@ -172,7 +181,9 @@ export async function runAgent(req: ChatRequest, skills: SkillPreset[], emit: Em
     throw new ApiError('MODEL_NOT_FOUND', `找不到对话模型 ${config.chatModel}，请检查 CHAT_MODEL / models.json 配置`, 400);
   }
 
-  const systemPrompt = buildSystemPrompt(req, skills, req.skill ? `/${req.skill}` : '', !!visionImage);
+  // 上下文压缩：超阈值时用对话模型把旧消息摘要化并落库，再与最近原文一起注入
+  const context = await prepareContext(conversationId, req.message, emit);
+  const systemPrompt = buildSystemPrompt(req, skills, req.skill ? `/${req.skill}` : '', !!visionImage, context);
   // 隔离本机 Pi 用户配置：默认 getAgentDir() 会读 ~/.pi/agent（settings/extensions/skills），
   // 用户本机装的扩展会在这里被加载并可能报错。本项目只用项目内 server/skills 与内置文件工具。
   const isolatedAgentDir = path.join(process.cwd(), 'server', 'data', 'pi-agent');

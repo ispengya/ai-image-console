@@ -82,5 +82,6 @@ export type SseEvent =
   | { type: 'tool_result'; id: string; status: 'ok' | 'error'; duration: number; result?: string }
   | { type: 'image'; image: GeneratedImage }
   | { type: 'text'; delta: string }
+  | { type: 'context_compressed'; folded: number; covered: number; beforeChars: number; afterChars: number; summaryChars: number }
   | { type: 'error'; code: string; message: string }
   | { type: 'done'; conversationId: string };

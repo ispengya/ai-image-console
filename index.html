@@ -775,6 +775,30 @@
         </div>
 
         <div class="set-group">
+          <div class="set-gtitle">上下文压缩 <span class="hint">长对话自动摘要，节省上下文与 token</span></div>
+          <div class="set-body">
+            <label class="set-field">
+              <div class="f-label">自动压缩 <span class="hint">对话变长时，用对话 API 把较早消息摘要后保留，最近原文照常注入；摘要随会话保存，刷新后仍有效</span></div>
+              <span class="switch"><input type="checkbox" id="cfg-ctx-on"><span class="sl"></span></span>
+            </label>
+            <div class="set-grid">
+              <label class="set-field">
+                <div class="f-label">触发消息数 <span class="hint">超过该条数开始压缩，默认 12</span></div>
+                <input type="number" id="cfg-ctx-threshold" class="mono" min="4" max="100" value="12">
+              </label>
+              <label class="set-field">
+                <div class="f-label">保留最近 <span class="hint">原文保留的条数，默认 6</span></div>
+                <input type="number" id="cfg-ctx-recent" class="mono" min="2" max="40" value="6">
+              </label>
+            </div>
+            <label class="set-field">
+              <div class="f-label">字符阈值 <span class="hint">未压缩消息累计字符超过此值也触发，默认 6000</span></div>
+              <input type="number" id="cfg-ctx-chars" class="mono" min="1000" max="200000" step="1000" value="6000">
+            </label>
+          </div>
+        </div>
+
+        <div class="set-group">
           <div class="set-gtitle">图像 API <span class="hint">与对话 API 相互独立</span></div>
           <div class="set-body">
             <label class="set-field">
@@ -859,6 +883,10 @@ var imageHistory = [];  // 当前会话的历史图片
 var chatUpload = null;  // { dataURL, name, mimeType } 待编辑的上传图
 var busyConvs = {};     // 正在执行任务的会话集合 { convId: true }，支持多会话并发
 var unreadConvs = {};   // 后台会话有新消息的未读标记 { convId: true }
+var imageById = {};     // 当前会话图片按 id 索引（实时流与历史加载共用，避免重复渲染）
+var localStreams = {};  // 本标签页正在实时收 SSE 的会话（刷新后为空，由回放接管）
+var taskReplay = {};    // 刷新后回放运行中任务的进度 { convId: { afterSeq, ctx, timer } }
+var pollSeq = 0;        // 任务轮询序号，丢弃过期响应防止旧结果覆盖新状态
 var conversations = []; // 会话列表 [{id, title, imageCount, thumbUrl, ...}]
 var currentConvId = ''; // 当前会话 ID（localStorage 持久化）
 var WELCOME_HTML = '';  // 对话区初始欢迎语
@@ -1075,6 +1103,165 @@ function parseSlash(text){
   return { name: m[1], args: m[2].trim(), skill: skill };
 }
 
+/* ================= SSE 事件渲染（实时流与刷新回放共用） ================= */
+/* 一个 view 持有某会话一轮任务的 DOM 状态；实时与回放都通过 applyAgentEvent 渲染 */
+function createTaskView(taskConvId){
+  return {
+    taskConvId: taskConvId,
+    typing: addTyping(),
+    statusMsg: null, botTextMsg: null, botText: '', thinkMsg: null,
+    toolCards: {}, toolActivity: null, toolEntries: [],
+    isActive: function(){ return currentConvId === this.taskConvId; }
+  };
+}
+function viewEnsureStatus(view, t){
+  if (!view.statusMsg) view.statusMsg = addMsg('status', '');
+  view.statusMsg.textContent = '· ' + t;
+}
+function viewEnsureBotText(view){
+  if (!view.botTextMsg) view.botTextMsg = addMsg('bot', '');
+}
+function viewEnsureToolActivity(view){
+  if (view.toolActivity) return view.toolActivity;
+  view.toolActivity = addMsg('tool-activity',
+    '<div class="ta-head">' +
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l.06.06a1.65 1.65 0 00-.33 1.82 1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>' +
+    '<span class="ta-title">工具活动</span><span class="ta-summary"></span><span class="ta-toggle">展开 ▾</span></div>' +
+    '<div class="ta-list" style="display:none"></div>');
+  view.toolActivity.querySelector('.ta-head').addEventListener('click', function(){
+    var list = view.toolActivity.querySelector('.ta-list');
+    var open = list.style.display !== 'none';
+    list.style.display = open ? 'none' : '';
+    view.toolActivity.querySelector('.ta-toggle').textContent = open ? '展开 ▾' : '收起 ▴';
+  });
+  return view.toolActivity;
+}
+function viewUpdateToolActivity(view){
+  if (!view.toolActivity) return;
+  var list = view.toolActivity.querySelector('.ta-list');
+  list.innerHTML = view.toolEntries.map(function(e){
+    var detail = '';
+    if (e.args && Object.keys(e.args).length) detail = escapeHtml(JSON.stringify(e.args, null, 2));
+    if (e.result) detail += (detail ? '\n\n' : '') + escapeHtml(e.result);
+    var statusText = e.status === 'running' ? '运行中' :
+      e.status === 'error' ? '失败' :
+      'ok · ' + ((e.duration || 0) / 1000).toFixed(1) + 's';
+    var statusCls = e.status === 'ok' ? ' ok' : e.status === 'error' ? ' error' : '';
+    return '<div class="ta-item"><div class="ta-item-head">' +
+      '<span class="ta-name">' + escapeHtml(e.name) + '</span>' +
+      '<span class="ta-status' + statusCls + '">' + statusText + '</span></div>' +
+      (detail ? '<div class="ta-detail">' + detail + '</div>' : '') + '</div>';
+  }).join('');
+  var counts = {};
+  var running = null, failed = 0;
+  view.toolEntries.forEach(function(e){
+    counts[e.name] = (counts[e.name] || 0) + 1;
+    if (e.status === 'running') running = e.name;
+    if (e.status === 'error') failed++;
+  });
+  var parts = Object.keys(counts).map(function(n){ return n + '×' + counts[n]; });
+  var summary = '已执行 ' + view.toolEntries.length + ' 个工具' + (parts.length ? ' · ' + parts.join(' ') : '');
+  if (failed) summary += ' · ' + failed + ' 个失败';
+  if (running) summary = '执行中：' + running + '（共 ' + view.toolEntries.length + ' 个）';
+  view.toolActivity.querySelector('.ta-summary').textContent = summary;
+}
+/* 把一条 SSE 事件渲染进 view；返回是否含"完成"语义（done/error） */
+function applyAgentEvent(ev, view){
+  var convId = view.taskConvId;
+  if (!view.isActive()) {
+    if (ev.type === 'image' || ev.type === 'done' || (ev.type === 'text' && ev.delta)) markUnread(convId);
+    return ev.type === 'done';
+  }
+  switch (ev.type) {
+    case 'status':
+      viewEnsureStatus(view, ev.text);
+      break;
+    case 'context_compressed':
+      var savedChars = Math.max(0, (ev.beforeChars || 0) - (ev.afterChars || 0));
+      addMsg('status', '上下文已压缩：' + (ev.folded || 0) + ' 条历史折叠为摘要 · 注入字符 ' +
+        (ev.beforeChars || 0) + ' → ' + (ev.afterChars || 0) + (savedChars ? '（节省 ' + savedChars + '）' : ''));
+      break;
+    case 'tool_call':
+      if (['generate_image', 'edit_image'].indexOf(ev.name) < 0) {
+        viewEnsureToolActivity(view);
+        view.toolEntries.push({ id: ev.id, name: ev.name, args: ev.arguments || {}, status: 'running', result: '', duration: 0 });
+        viewUpdateToolActivity(view);
+        viewEnsureStatus(view, '执行 ' + ev.name + '…');
+        break;
+      }
+      var card = addMsg('tool',
+        '<div class="t-head"><span>tool_call</span><span class="fn">' + escapeHtml(ev.name) + '</span>' +
+        '<span class="skill-tag">image</span>' +
+        '<span class="t-status">running</span></div>' +
+        '<pre>' + escapeHtml(JSON.stringify(ev.arguments || {}, null, 2)) + '</pre>' +
+        '<div class="t-result"></div>');
+      view.toolCards[ev.id] = card;
+      viewEnsureStatus(view, '执行 ' + ev.name + '…');
+      break;
+    case 'tool_result':
+      var entry = null;
+      for (var ti = 0; ti < view.toolEntries.length; ti++) {
+        if (view.toolEntries[ti].id === ev.id) { entry = view.toolEntries[ti]; break; }
+      }
+      if (entry) {
+        entry.status = ev.status;
+        entry.result = ev.result || '';
+        entry.duration = ev.duration || 0;
+        viewUpdateToolActivity(view);
+      } else {
+        var tc = view.toolCards[ev.id];
+        if (tc) {
+          var st = tc.querySelector('.t-status');
+          st.textContent = (ev.status === 'ok' ? 'ok' : 'error') + ' · ' + ((ev.duration || 0) / 1000).toFixed(1) + 's';
+          st.classList.add(ev.status === 'ok' ? 'ok' : 'error');
+          var resultBox = tc.querySelector('.t-result');
+          if (resultBox && ev.result) {
+            resultBox.innerHTML = '<span class="t-result-label">result</span>' + escapeHtml(ev.result);
+          }
+        }
+      }
+      break;
+    case 'thinking':
+      if (!view.thinkMsg) view.thinkMsg = addMsg('thinking', '<span class="th-label">thinking…</span>');
+      var thBody = view.thinkMsg.querySelector('.th-body');
+      if (!thBody) { thBody = document.createElement('span'); thBody.className = 'th-body'; view.thinkMsg.appendChild(thBody); }
+      thBody.textContent += ev.delta;
+      $('chat-msgs').scrollTop = $('chat-msgs').scrollHeight;
+      break;
+    case 'image':
+      var img = ev.image;
+      // 回放可能遇到历史里已加载的图片：聊天区补一条，但别重复进 imageHistory / 画廊
+      if (!imageById[img.id]) {
+        imageById[img.id] = img;
+        imageHistory.unshift(img);
+        prependGalleryCard(img.prompt, img.url, img.size, img.quality, img.index, img.id);
+        updateCount();
+      }
+      addMsg('imgmsg', imgMsgHtml(img));
+      break;
+    case 'text':
+      viewEnsureBotText(view);
+      view.botText += ev.delta;
+      view.botTextMsg.textContent = view.botText;
+      break;
+    case 'error':
+      addMsg('bot', renderMarkdown('错误 [' + ev.code + ']：' + ev.message));
+      break;
+    case 'done':
+      if (view.statusMsg) view.statusMsg.remove();
+      break;
+  }
+  return ev.type === 'done';
+}
+/* 任务收尾：把流式纯文本渲染成 Markdown，收起 thinking */
+function finalizeTaskView(view, pushToConv){
+  if (view.typing && view.typing.parentNode) view.typing.remove();
+  if (!view.isActive()) return;
+  if (view.botTextMsg && view.botText.trim()) view.botTextMsg.innerHTML = renderMarkdown(view.botText);
+  if (view.thinkMsg) view.thinkMsg.classList.add('done');
+  if (pushToConv && view.botText) convMessages.push({ role: 'assistant', content: view.botText });
+}
+
 /* ================= Agent 响应流程（真实 SSE 调用后端） ================= */
 async function agentRespond(text, uploadSnapshot, slash){
   var taskConvId = currentConvId;
@@ -1100,6 +1287,7 @@ async function agentRespond(text, uploadSnapshot, slash){
   var toolCards = {};
   var toolActivity = null;   // 内置工具统一收敛到这一个可折叠容器
   var toolEntries = [];
+  localStreams[taskConvId] = true; // 本标签页正在实时收流，轮询不会误清该会话状态
 
   function ensureToolActivity(){
     if (toolActivity) return toolActivity;
@@ -1212,6 +1400,11 @@ async function agentRespond(text, uploadSnapshot, slash){
           case 'status':
             ensureStatus(ev.text);
             break;
+          case 'context_compressed':
+            var savedChars = Math.max(0, (ev.beforeChars || 0) - (ev.afterChars || 0));
+            addMsg('status', '上下文已压缩：' + (ev.folded || 0) + ' 条历史折叠为摘要 · 注入字符 ' +
+              (ev.beforeChars || 0) + ' → ' + (ev.afterChars || 0) + (savedChars ? '（节省 ' + savedChars + '）' : ''));
+            break;
           case 'tool_call':
             // 内置工具（read/bash/edit/write 等）全部收敛进一个可折叠容器
             if (['generate_image', 'edit_image'].indexOf(ev.name) < 0) {
@@ -1298,10 +1491,65 @@ async function agentRespond(text, uploadSnapshot, slash){
       addMsg('bot', '请求失败：' + ((err && err.message) || String(err)));
     }
   } finally {
+    delete localStreams[taskConvId];
     delete busyConvs[taskConvId];
     syncSendState();
     markBusyInList();
+    // 任务结束立即刷新一次状态，不必等下一次 3 秒轮询（解决图标滞留）
+    loadRunningTasks();
   }
+}
+
+/* ================= 刷新后回放运行中任务 ================= */
+/* 后端按会话缓存本轮 SSE 事件；刷新后页面重新拉取并渲染，让内容续上 */
+function startTaskReplay(convId){
+  if (taskReplay[convId] || localStreams[convId]) return;
+  var view = createTaskView(convId);
+  if (view.typing && view.typing.parentNode) view.typing.remove(); // 回放不显示打字动画
+  var state = { afterSeq: 0, view: view, done: false, timer: null };
+  taskReplay[convId] = state;
+  markBusyInList();
+
+  function pump(){
+    if (state.done || currentConvId !== convId || taskReplay[convId] !== state) return;
+    fetch(API_BASE + '/api/tasks/' + encodeURIComponent(convId) + '/events?after=' + state.afterSeq)
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(data){
+        if (state.done || taskReplay[convId] !== state) return;
+        if (data) {
+          (data.events || []).forEach(function(item){
+            state.afterSeq = Math.max(state.afterSeq, item.seq || 0);
+            applyAgentEvent(item.event, state.view);
+          });
+          if (data.done) { finishReplay(convId, true); return; }
+        }
+        state.timer = setTimeout(pump, 1000); // 1 秒增量拉取，近似实时
+      })
+      .catch(function(){ state.timer = setTimeout(pump, 2000); });
+  }
+  pump();
+}
+function finishReplay(convId, refreshHistory){
+  var state = taskReplay[convId];
+  if (!state) return;
+  state.done = true;
+  if (state.timer) clearTimeout(state.timer);
+  delete taskReplay[convId];
+  finalizeTaskView(state.view, false);
+  if (convId === currentConvId) {
+    delete busyConvs[convId];
+    markBusyInList();
+    syncSendStateForCurrent();
+    if (refreshHistory) loadHistoryFromServer(); // 用落库的最终消息替换回放内容，避免重复
+    else loadConversations();
+  }
+}
+function stopTaskReplay(convId){
+  var state = taskReplay[convId];
+  if (!state) return;
+  state.done = true;
+  if (state.timer) clearTimeout(state.timer);
+  delete taskReplay[convId];
 }
 
 /* ================= 附件（上传待编辑图片） ================= */
@@ -1476,6 +1724,10 @@ var DEFAULT_CONFIG = {
   chatVision: false,
   chatThinking: 'off',
   system: '你是一个图片生成助手。根据用户描述调用 generate_image 生成图片；用户上传图片并要求修改时调用 edit_image。参数未明确时按生成设置的默认值执行。',
+  contextCompression: true,
+  contextThreshold: 12,
+  contextKeepRecent: 6,
+  contextMaxChars: 6000,
   imageBase: 'https://api.openai.com/v1',
   imageKey: '',
   imageModel: 'gpt-image-1',
@@ -1509,6 +1761,10 @@ function applyConfigToForm(){
   $('cfg-vision').checked = !!CONFIG.chatVision;
   $('cfg-thinking').value = CONFIG.chatThinking || 'off';
   $('cfg-system').value = CONFIG.system;
+  $('cfg-ctx-on').checked = CONFIG.contextCompression !== false;
+  $('cfg-ctx-threshold').value = CONFIG.contextThreshold;
+  $('cfg-ctx-recent').value = CONFIG.contextKeepRecent;
+  $('cfg-ctx-chars').value = CONFIG.contextMaxChars;
   $('cfg-image-base').value = CONFIG.imageBase;
   $('cfg-image-key').value = CONFIG.imageKey;
   $('cfg-image-model').value = CONFIG.imageModel;
@@ -1527,6 +1783,10 @@ function readConfigForm(){
     chatVision: $('cfg-vision').checked,
     chatThinking: $('cfg-thinking').value,
     system: $('cfg-system').value.trim(),
+    contextCompression: $('cfg-ctx-on').checked,
+    contextThreshold: Number($('cfg-ctx-threshold').value) || 12,
+    contextKeepRecent: Number($('cfg-ctx-recent').value) || 6,
+    contextMaxChars: Number($('cfg-ctx-chars').value) || 6000,
     imageBase: $('cfg-image-base').value.trim(),
     imageKey: $('cfg-image-key').value.trim(),
     imageModel: $('cfg-image-model').value.trim(),
@@ -1559,6 +1819,10 @@ $('cfg-save').addEventListener('click', async function(){
     chatVision: CONFIG.chatVision,
     chatThinking: CONFIG.chatThinking,
     systemPrompt: CONFIG.system,
+    contextCompression: CONFIG.contextCompression,
+    contextThreshold: CONFIG.contextThreshold,
+    contextKeepRecent: CONFIG.contextKeepRecent,
+    contextMaxChars: CONFIG.contextMaxChars,
     imageBaseUrl: CONFIG.imageBase,
     imageModel: CONFIG.imageModel
   };
@@ -1699,6 +1963,8 @@ function renderConversations(){
 }
 function switchConversation(id){
   if (id === currentConvId) return;
+  // 离开旧会话：停掉它的回放（事件仍在后端缓存，切回来可从头重放）
+  if (taskReplay[currentConvId]) stopTaskReplay(currentConvId);
   currentConvId = id;
   delete unreadConvs[id]; // 进入会话即清除未读
   saveCurrentConv();
@@ -1707,6 +1973,8 @@ function switchConversation(id){
   loadHistoryFromServer();
   loadConversations(); // 同步后台任务结束后会话的最新标题/图片数
   syncSendStateForCurrent();
+  // 新会话仍在后台跑且本页没实时流 → 启动回放续上
+  if (busyConvs[id] && !localStreams[id]) startTaskReplay(id);
 }
 function newConversation(){
   currentConvId = newConvId();
@@ -1747,6 +2015,7 @@ function markBusyInList(){
 function clearChatAndGallery(){
   convMessages = [];
   imageHistory = [];
+  imageById = {};
   $('chat-msgs').innerHTML = WELCOME_HTML;
   $('gallery').innerHTML = '';
   $('empty-state').style.display = '';
@@ -1813,7 +2082,7 @@ function loadHistoryFromServer(){
   ]).then(function(res){
     if (currentConvId !== convId) return; // 加载期间用户切了会话，丢弃过期响应
     imageHistory = res[1].images || [];
-    var imageById = {};
+    imageById = {};
     imageHistory.forEach(function(img){ imageById[img.id] = img; });
     renderStoredMessages(res[0].messages || [], imageById);
     $('gallery').innerHTML = '';
@@ -1830,6 +2099,10 @@ function loadServerConfig(){
       CONFIG.chatVision = !!cfg.chatVision;
       CONFIG.chatThinking = cfg.chatThinking || 'off';
       CONFIG.system = cfg.systemPrompt || CONFIG.system;
+      if (typeof cfg.contextCompression === 'boolean') CONFIG.contextCompression = cfg.contextCompression;
+      if (cfg.contextThreshold) CONFIG.contextThreshold = cfg.contextThreshold;
+      if (cfg.contextKeepRecent) CONFIG.contextKeepRecent = cfg.contextKeepRecent;
+      if (cfg.contextMaxChars) CONFIG.contextMaxChars = cfg.contextMaxChars;
       CONFIG.imageBase = cfg.imageBaseUrl;
       CONFIG.imageModel = cfg.imageModel;
       CONFIG.outdir = cfg.outputDir;
@@ -1848,20 +2121,31 @@ function loadServerConfig(){
     .catch(function(err){ console.warn('加载服务端配置失败', err); });
 }
 
-/* 从后端恢复"哪些会话还在后台跑"：刷新页面后侧栏仍能显示旋转图标 */
+/* 从后端恢复"哪些会话还在后台跑"：刷新页面后侧栏仍能显示旋转图标并续上内容 */
 var knownRunning = {}; // 上一次轮询的运行集合，用于检测刚结束的任务（点亮绿点）
 function loadRunningTasks(){
+  var seq = ++pollSeq; // 过期响应直接丢弃，防止旧的 running 快照把结束的任务又标成运行中
   return fetch(API_BASE + '/api/tasks').then(function(r){ return r.json(); }).then(function(data){
+    if (seq !== pollSeq) return;
     var now = {};
     (data.running || []).forEach(function(t){ if (t && t.conversationId) now[t.conversationId] = true; });
-    // 之前在跑、现在结束、且不是当前会话 → 有新消息未读
+
+    // 之前在跑、现在结束：清除运行标记（否则旋转图标一直转）
     Object.keys(knownRunning).forEach(function(id){
-      if (!now[id] && id !== currentConvId) markUnread(id);
+      if (now[id] || localStreams[id]) return; // 本标签页正在收流的交给 agentRespond 自己收尾
+      delete busyConvs[id];
+      stopTaskReplay(id);
+      if (id !== currentConvId) markUnread(id);
     });
+
     knownRunning = now;
-    Object.keys(now).forEach(function(id){ busyConvs[id] = true; }); // 恢复运行标记
+    // 只恢复仍在运行的标记，不再无条件给所有历史 id 打 true
+    Object.keys(now).forEach(function(id){ busyConvs[id] = true; });
     markBusyInList();
     syncSendStateForCurrent();
+
+    // 当前会话在后台跑、且本标签页没有实时流 → 启动回放续上内容
+    if (now[currentConvId] && !localStreams[currentConvId]) startTaskReplay(currentConvId);
   }).catch(function(){ /* 后端未就绪时忽略 */ });
 }
 

@@ -23,6 +23,11 @@ interface RuntimeConfig {
   chatVision?: boolean;
   chatThinking?: string;
   systemPrompt?: string;
+  /** 上下文压缩：开关、触发消息数、保留最近原文条数、字符阈值 */
+  contextCompression?: boolean;
+  contextThreshold?: number;
+  contextKeepRecent?: number;
+  contextMaxChars?: number;
   imageApiKey?: string;
   imageBaseUrl?: string;
   imageModel?: string;
@@ -51,6 +56,11 @@ export interface AppConfig {
   /** Pi 思考级别：off/minimal/low/medium/high/xhigh/max；模型不支持时 Pi 自动忽略 */
   chatThinking: string;
   systemPrompt: string;
+  /** 上下文压缩：对话超长时把旧消息用对话模型摘要后注入，保留最近若干条原文 */
+  contextCompression: boolean;
+  contextThreshold: number;
+  contextKeepRecent: number;
+  contextMaxChars: number;
   // 图像 API（gpt-image-1 文生图/编辑）
   imageApiKey: string;
   imageBaseUrl: string;
@@ -76,6 +86,11 @@ export const config: AppConfig = {
   chatVision: runtime.chatVision ?? envBool('CHAT_VISION', false),
   chatThinking: runtime.chatThinking ?? env('CHAT_THINKING', 'off'),
   systemPrompt: runtime.systemPrompt ?? env('SYSTEM_PROMPT', DEFAULT_SYSTEM_PROMPT),
+
+  contextCompression: runtime.contextCompression ?? envBool('CONTEXT_COMPRESSION', true),
+  contextThreshold: runtime.contextThreshold ?? Number(env('CONTEXT_THRESHOLD', '12')),
+  contextKeepRecent: runtime.contextKeepRecent ?? Number(env('CONTEXT_KEEP_RECENT', '6')),
+  contextMaxChars: runtime.contextMaxChars ?? Number(env('CONTEXT_MAX_CHARS', '6000')),
 
   imageApiKey: runtime.imageApiKey ?? env('IMAGE_API_KEY', legacyKey),
   imageBaseUrl: (runtime.imageBaseUrl ?? env('IMAGE_BASE_URL', OFFICIAL)).replace(/\/+$/, ''),
@@ -103,6 +118,10 @@ export function updateRuntimeConfig(patch: RuntimeConfig): void {
   if (patch.chatVision !== undefined) config.chatVision = !!patch.chatVision;
   if (patch.chatThinking !== undefined) config.chatThinking = patch.chatThinking.trim() || 'off';
   if (patch.systemPrompt !== undefined) config.systemPrompt = patch.systemPrompt.trim();
+  if (patch.contextCompression !== undefined) config.contextCompression = !!patch.contextCompression;
+  if (patch.contextThreshold !== undefined) config.contextThreshold = Math.max(4, Math.min(100, Math.round(patch.contextThreshold)));
+  if (patch.contextKeepRecent !== undefined) config.contextKeepRecent = Math.max(2, Math.min(40, Math.round(patch.contextKeepRecent)));
+  if (patch.contextMaxChars !== undefined) config.contextMaxChars = Math.max(1000, Math.min(200000, Math.round(patch.contextMaxChars)));
   if (patch.imageApiKey !== undefined) config.imageApiKey = patch.imageApiKey.trim();
   if (patch.imageBaseUrl !== undefined) config.imageBaseUrl = patch.imageBaseUrl.trim().replace(/\/+$/, '') || OFFICIAL;
   if (patch.imageModel !== undefined) config.imageModel = patch.imageModel.trim();
@@ -114,6 +133,10 @@ export function updateRuntimeConfig(patch: RuntimeConfig): void {
     chatVision: config.chatVision,
     chatThinking: config.chatThinking,
     systemPrompt: config.systemPrompt,
+    contextCompression: config.contextCompression,
+    contextThreshold: config.contextThreshold,
+    contextKeepRecent: config.contextKeepRecent,
+    contextMaxChars: config.contextMaxChars,
     imageApiKey: config.imageApiKey,
     imageBaseUrl: config.imageBaseUrl,
     imageModel: config.imageModel,

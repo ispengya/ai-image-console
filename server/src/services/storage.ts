@@ -35,6 +35,12 @@ db.exec(`
     created_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, created_at);
+  CREATE TABLE IF NOT EXISTS conversation_summaries (
+    conversation_id TEXT PRIMARY KEY,
+    summary TEXT NOT NULL,
+    covered_count INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+  );
 `);
 
 // 老库迁移：给既有 images 表补会话字段
@@ -137,6 +143,33 @@ export const storage = {
       'SELECT * FROM (SELECT *, rowid AS _seq FROM messages WHERE conversation_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?) ORDER BY created_at ASC, _seq ASC'
     ).all(conversationId, limit);
     return rows.map(rowToMessage);
+  },
+
+  /** 会话全部消息（时间正序），供上下文压缩判断覆盖范围；无条数截断 */
+  listAllMessages(conversationId: string): ChatMessage[] {
+    return this.listMessages(conversationId, 100000);
+  },
+
+  /** 读取会话压缩摘要；coveredCount 表示已折叠进摘要的消息条数（时间正序前缀） */
+  getSummary(conversationId: string): { summary: string; coveredCount: number; updatedAt: string } | null {
+    const row: any = db.prepare('SELECT summary, covered_count, updated_at FROM conversation_summaries WHERE conversation_id = ?').get(conversationId);
+    if (!row) return null;
+    return { summary: row.summary, coveredCount: row.covered_count ?? 0, updatedAt: row.updated_at };
+  },
+
+  /** 写入/更新会话摘要 */
+  saveSummary(conversationId: string, summary: string, coveredCount: number): void {
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO conversation_summaries (conversation_id, summary, covered_count, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(conversation_id) DO UPDATE SET
+         summary = excluded.summary, covered_count = excluded.covered_count, updated_at = excluded.updated_at`
+    ).run(conversationId, summary, coveredCount, now);
+  },
+
+  /** 清空会话摘要（删除会话或手动重建时） */
+  clearSummary(conversationId: string): void {
+    db.prepare('DELETE FROM conversation_summaries WHERE conversation_id = ?').run(conversationId);
   },
 
   /** 会话列表（含图片数与缩略图） */
@@ -283,6 +316,7 @@ export const storage = {
     const result = db.prepare('DELETE FROM conversations WHERE id = ?').run(id);
     db.prepare('DELETE FROM images WHERE conversation_id = ?').run(id);
     db.prepare('DELETE FROM messages WHERE conversation_id = ?').run(id);
+    db.prepare('DELETE FROM conversation_summaries WHERE conversation_id = ?').run(id);
     const dir = path.join(config.outputDir, id);
     if (dir.startsWith(config.outputDir + path.sep)) {
       fs.rmSync(dir, { recursive: true, force: true });
