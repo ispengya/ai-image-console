@@ -1075,8 +1075,8 @@ async function agentRespond(text, uploadSnapshot, slash){
           case 'image':
             var img = ev.image;
             addMsg('imgmsg',
-              '<div class="imgs"><img src="' + img.url + '" alt=""></div>' +
-              '<div class="cap">' + escapeHtml(img.prompt) + '<br>' + img.size + ' · ' + img.quality + ' · ' + img.model + '</div>');
+              '<div class="imgs"><img src="' + img.url + '" alt="" data-image-cap="' +
+              escapeHtml(img.prompt + ' · ' + img.size + ' · ' + img.quality + ' · ' + img.model) + '"></div>');
             imageHistory.unshift(img);
             prependGalleryCard(img.prompt, img.url, img.size, img.quality);
             break;
@@ -1501,8 +1501,8 @@ function renderStoredMessages(msgs, imageById){
       var img = imageById[id];
       if (!img) return;
       addMsg('imgmsg',
-        '<div class="imgs"><img src="' + img.url + '" alt=""></div>' +
-        '<div class="cap">' + escapeHtml(img.prompt) + '<br>' + img.size + ' · ' + img.quality + ' · ' + img.model + '</div>');
+        '<div class="imgs"><img src="' + img.url + '" alt="" data-image-cap="' +
+        escapeHtml(img.prompt + ' · ' + img.size + ' · ' + img.quality + ' · ' + img.model) + '"></div>');
     });
   });
   updateCount();
