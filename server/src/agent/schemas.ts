@@ -21,6 +21,9 @@ export const editImageParams = z.object({
   model: z.string().default('gpt-image-1'),
   output_format: z.enum(['png', 'jpeg', 'webp']).default('png'),
   use_last_image: z.boolean().default(true),
+  /** 指定会话内某张图：按生成序号（1=最早）或图片 id；优先于 use_last_image / 上传图 */
+  image_index: z.number().int().min(1).optional(),
+  image_id: z.string().optional(),
 });
 
 // OpenAI function calling 用的 JSON Schema
@@ -63,6 +66,8 @@ export const toolDefinitions = [
           model: { type: 'string' },
           output_format: { type: 'string', enum: ['png', 'jpeg', 'webp'] },
           use_last_image: { type: 'boolean', description: 'true=用最近生成的图，false=用用户上传的图' },
+          image_index: { type: 'integer', minimum: 1, description: '按会话内生成序号编辑指定图，1=最早生成的第一张；优先于 use_last_image' },
+          image_id: { type: 'string', description: '按图片 id 编辑指定图；优先于 image_index' },
         },
         required: ['prompt'],
         additionalProperties: false,

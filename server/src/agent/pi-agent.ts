@@ -61,6 +61,11 @@ function buildSystemPrompt(req: ChatRequest, skills: SkillPreset[], skillTag: st
   const historyLines = req.history.slice(-10)
     .map((h) => `${h.role === 'user' ? '用户' : '助手'}：${h.content}`)
     .join('\n');
+  // 本会话可编辑图片清单（按生成顺序编号），供模型把「第一张」映射到 image_index
+  const editable = storage.listImages(100, req.conversationId, false).reverse();
+  const imageLines = editable.length
+    ? editable.map((img) => `第${img.index}张（id=${img.id}）：${img.prompt.slice(0, 40)}${img.prompt.length > 40 ? '…' : ''}`).join('\n')
+    : '- （暂无）';
   const attachmentHint = hasVisionImage
     ? `\n本次会话有用户上传的图片，已作为视觉内容附在消息中。你可以看到并描述画面内容；若用户要求修改，基于实际画面调用 edit_image 并设 use_last_image=false。`
     : req.attachment
@@ -76,7 +81,11 @@ ${customPrompt}
     : '';
   return `${customSection}你是图片工作台的图片生成 Agent。工具契约是硬性要求，必须遵守：
 - generate_image：用户要求生成、画一张、出图时调用。
-- edit_image：用户要求修改、重绘、换风格时调用。use_last_image=false 表示使用用户上传的图片，true 表示使用最近生成的图片；用户上传了图片时优先用上传图。
+- edit_image：用户要求修改、重绘、换风格时调用。
+  选图优先级：用户说「第 N 张 / 第一张 / 刚才那张」时，用 image_index=N 精确指定（N 从 1 开始，按生成顺序）；给出 id 时用 image_id；否则 use_last_image=false 表示用用户上传的图，true 表示用最近生成的图。
+
+本会话已生成的图片（用户说的编号对应这里的「第N张」）：
+${imageLines}
 
 你还拥有 Pi 的文件工具 read / bash / edit / write（工作目录是项目根目录）。当 skill 需要了解产品上下文（如 README、package.json、设计文档）时，先用这些工具读取相关文件再提案，不要仅凭目录名猜测。除用户明确要求外，不要修改任何文件。
 
@@ -211,7 +220,7 @@ export async function runAgent(req: ChatRequest, skills: SkillPreset[], emit: Em
             });
             return {
               content: [{ type: 'text', text: `已生成 ${saved.length} 张图片：${saved.map((i) => i.url).join(', ')}` }],
-              details: { images: saved.map((i) => ({ url: i.url, id: i.id, size: i.size, quality: i.quality })) },
+              details: { images: saved.map((i) => ({ url: i.url, id: i.id, index: i.index, size: i.size, quality: i.quality })) },
             };
           } catch (err: any) {
             return toolError(err, emit, toolCallId, started);
@@ -230,6 +239,8 @@ export async function runAgent(req: ChatRequest, skills: SkillPreset[], emit: Em
           model: Type.Optional(Type.String()),
           output_format: Type.Optional(Type.String({ enum: ['png', 'jpeg', 'webp'] })),
           use_last_image: Type.Optional(Type.Boolean({ description: 'true=用最近生成的图，false=用用户上传的图' })),
+          image_index: Type.Optional(Type.Number({ description: '按会话内生成序号编辑指定图，1=最早生成的第一张；优先于 use_last_image' })),
+          image_id: Type.Optional(Type.String({ description: '按图片 id 编辑指定图；优先于 image_index' })),
         }),
         async execute(toolCallId: string, params: any) {
           const started = Date.now();
@@ -243,18 +254,44 @@ export async function runAgent(req: ChatRequest, skills: SkillPreset[], emit: Em
           try {
             const merged = mergeParams(req.settings, skillOverrides, params);
             const parsed = editImageParams.parse(merged);
-            // 有上传图时优先用上传图；否则只取【当前会话】最近生成的图，避免跨会话串图
-            const useUpload = !!sourceImageId && parsed.use_last_image !== true;
-            const useLast = !useUpload && parsed.use_last_image !== false;
-            let lastBuffer: Buffer | null = null;
-            let parentId: string | null = useUpload ? sourceImageId : null;
-            if (useLast) {
-              const lastImage = storage.getLastGenerated(conversationId);
-              if (!lastImage) throw new ApiError('NO_SOURCE_IMAGE', '当前会话还没有可编辑的图片：请先生成一张，或上传原图', 400);
-              const found = storage.getImagePath(lastImage.id);
+            // 选图优先级：显式 image_id / image_index > 上传图 > 最近生成图
+            // 只在本会话产物里定位，避免跨会话串图
+            const sessionImages = storage.listImages(200, conversationId, false);
+            let selected: { id: string; buffer: Buffer } | null = null;
+
+            if (parsed.image_id) {
+              const target = sessionImages.find((i) => i.id === parsed.image_id);
+              if (!target) throw new ApiError('NO_SOURCE_IMAGE', `当前会话中找不到 id 为 ${parsed.image_id} 的图片`, 400);
+              const found = storage.getImagePath(target.id);
               if (!found) throw new ApiError('NO_SOURCE_IMAGE', '来源图片文件不存在', 400);
-              lastBuffer = fs.readFileSync(found.filepath);
-              parentId = lastImage.id;
+              selected = { id: target.id, buffer: fs.readFileSync(found.filepath) };
+            } else if (parsed.image_index !== undefined) {
+              const ordered = sessionImages.slice().reverse(); // 按生成顺序（1=最早）
+              const target = ordered[parsed.image_index - 1];
+              if (!target) throw new ApiError('NO_SOURCE_IMAGE', `当前会话只有 ${ordered.length} 张可编辑图片，没有第 ${parsed.image_index} 张`, 400);
+              const found = storage.getImagePath(target.id);
+              if (!found) throw new ApiError('NO_SOURCE_IMAGE', '来源图片文件不存在', 400);
+              selected = { id: target.id, buffer: fs.readFileSync(found.filepath) };
+            }
+
+            let lastBuffer: Buffer | null = null;
+            let parentId: string | null = null;
+            let useUpload = false;
+            if (selected) {
+              lastBuffer = selected.buffer;
+              parentId = selected.id;
+            } else {
+              useUpload = !!sourceImageId && parsed.use_last_image !== true;
+              if (useUpload) {
+                parentId = sourceImageId;
+              } else if (parsed.use_last_image !== false) {
+                const lastImage = storage.getLastGenerated(conversationId);
+                if (!lastImage) throw new ApiError('NO_SOURCE_IMAGE', '当前会话还没有可编辑的图片：请先生成一张，或上传原图', 400);
+                const found = storage.getImagePath(lastImage.id);
+                if (!found) throw new ApiError('NO_SOURCE_IMAGE', '来源图片文件不存在', 400);
+                lastBuffer = fs.readFileSync(found.filepath);
+                parentId = lastImage.id;
+              }
             }
             const base64List = await editImages({
               model: parsed.model,
@@ -264,7 +301,7 @@ export async function runAgent(req: ChatRequest, skills: SkillPreset[], emit: Em
               quality: parsed.quality,
               output_format: parsed.output_format,
               attachment: useUpload ? req.attachment : null,
-              lastImageBuffer: useLast ? lastBuffer : null,
+              lastImageBuffer: !useUpload ? lastBuffer : null,
             });
             const saved = saveAndEmit(base64List, {
               format: parsed.output_format, prompt: parsed.prompt, size: parsed.size,
@@ -273,7 +310,7 @@ export async function runAgent(req: ChatRequest, skills: SkillPreset[], emit: Em
             });
             return {
               content: [{ type: 'text', text: `已编辑 ${saved.length} 张图片：${saved.map((i) => i.url).join(', ')}` }],
-              details: { images: saved.map((i) => ({ url: i.url, id: i.id })) },
+              details: { images: saved.map((i) => ({ url: i.url, id: i.id, index: i.index })) },
             };
           } catch (err: any) {
             return toolError(err, emit, toolCallId, started);

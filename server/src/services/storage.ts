@@ -189,9 +189,17 @@ export const storage = {
       file, opts.conversationId, opts.parentId ?? null, createdAt
     );
     this.touchConversation(opts.conversationId);
-    return rowToImage({ id, prompt: opts.prompt, size: opts.size, quality: opts.quality,
+    const result = rowToImage({ id, prompt: opts.prompt, size: opts.size, quality: opts.quality,
       model: opts.model, format: opts.format, kind: opts.kind, file,
       conversation_id: opts.conversationId, parent_id: opts.parentId ?? null, created_at: createdAt });
+    if (opts.kind !== 'source') {
+      // 新落盘的生成/编辑图必然是本会话最后一张，序号 = 当前会话产物总数
+      const row: any = db.prepare(
+        "SELECT COUNT(*) AS n FROM images WHERE conversation_id = ? AND kind IN ('generate','edit')"
+      ).get(opts.conversationId);
+      result.index = row?.n ?? 0;
+    }
+    return result;
   },
 
   /** 落盘用户上传的原图，返回可用于 edit 的来源记录 */
@@ -230,7 +238,21 @@ export const storage = {
         `SELECT * FROM images WHERE 1=1 ${kindFilter} ORDER BY created_at DESC LIMIT ?`
       ).all(limit);
     }
-    return rows.map(rowToImage);
+    const images = rows.map(rowToImage);
+    // 附会话内生成序号：新在前，序号从尾部倒数；source 图不编号
+    if (conversationId) {
+      const row: any = db.prepare(
+        "SELECT COUNT(*) AS n FROM images WHERE conversation_id = ? AND kind IN ('generate','edit')"
+      ).get(conversationId);
+      const total = row?.n ?? 0;
+      let seen = 0;
+      for (const img of images) {
+        if (img.kind === 'source') continue;
+        img.index = total - seen;
+        seen++;
+      }
+    }
+    return images;
   },
 
   /** 按 id 读取图片（base64 + mime），供多模态把已落盘的历史图片重新喂给模型 */

@@ -10,6 +10,8 @@ export interface GeneratedImage {
   conversationId?: string;
   parentId?: string;
   createdAt: string;
+  /** 会话内生成/编辑图的序号（1-based，按生成顺序），source 图为 0 */
+  index?: number;
 }
 
 export interface ConversationSummary {

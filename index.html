@@ -264,7 +264,15 @@
     transition: transform .25s ease, box-shadow .25s ease;
   }
   .msg.imgmsg img:hover { transform: translateY(-2px); box-shadow: var(--shadow-float); }
-  .msg.imgmsg .imgs.multi img { width: calc(50% - 4px); max-width: 220px; }
+  .msg.imgmsg .imgs.multi .img-wrap { width: calc(50% - 4px); max-width: 220px; }
+  .msg.imgmsg .imgs.multi img { width: 100%; max-width: none; }
+  .img-wrap { position: relative; display: inline-block; line-height: 0; max-width: 100%; }
+  .img-seq {
+    position: absolute; top: 8px; left: 8px; z-index: 1; min-width: 22px; height: 22px;
+    padding: 0 6px; border-radius: 999px; background: rgba(0, 0, 0, .62); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-family: var(--mono); line-height: 1; backdrop-filter: blur(4px);
+  }
   .msg.imgmsg .cap { font-size: 11px; color: var(--muted-foreground); padding: 7px 2px 0; font-family: var(--mono); line-height: 1.5; }
   .typing { display: inline-flex; gap: 4px; align-items: center; height: 18px; }
   .typing i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted-foreground); animation: tbounce 1s infinite; }
@@ -383,8 +391,9 @@
     box-shadow: var(--shadow-card); transition: transform .22s ease, box-shadow .22s ease;
   }
   .card:hover { transform: translateY(-2px); box-shadow: var(--shadow-float); }
-  .card .thumb { aspect-ratio: 1; background: var(--muted); overflow: hidden; }
+  .card .thumb { aspect-ratio: 1; background: var(--muted); overflow: hidden; position: relative; }
   .card .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .35s ease; }
+  .card .thumb .img-seq { top: 8px; left: 8px; }
   .card:hover .thumb img { transform: scale(1.04); }
   .card .meta { padding: 9px 11px; font-size: 10.5px; color: var(--muted-foreground); font-family: var(--mono); }
   .card .meta .p { color: var(--foreground); font-family: inherit; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 3px; }
@@ -1078,11 +1087,9 @@ async function agentRespond(text, uploadSnapshot, slash){
             break;
           case 'image':
             var img = ev.image;
-            addMsg('imgmsg',
-              '<div class="imgs"><img src="' + img.url + '" alt="" data-image-cap="' +
-              escapeHtml(img.prompt + ' · ' + img.size + ' · ' + img.quality + ' · ' + img.model) + '"></div>');
+            addMsg('imgmsg', imgMsgHtml(img));
             imageHistory.unshift(img);
-            prependGalleryCard(img.prompt, img.url, img.size, img.quality);
+            prependGalleryCard(img.prompt, img.url, img.size, img.quality, img.index);
             break;
           case 'text':
             ensureBotText();
@@ -1189,11 +1196,20 @@ function sendChat(){
 }
 
 /* ================= 画廊 ================= */
-function prependGalleryCard(prompt, url, size, quality){
+/* 图片消息统一渲染：左上角标会话内生成序号，说明写入 data-image-cap 供预览使用 */
+function seqBadge(index){
+  return index ? '<span class="img-seq">' + index + '</span>' : '';
+}
+function imgMsgHtml(img){
+  return '<div class="imgs"><div class="img-wrap"><img src="' + img.url + '" alt="" data-image-cap="' +
+    escapeHtml(img.prompt + ' · ' + img.size + ' · ' + img.quality + ' · ' + img.model) + '">' +
+    seqBadge(img.index) + '</div></div>';
+}
+function prependGalleryCard(prompt, url, size, quality, index){
   $('empty-state').style.display = 'none';
   var card = document.createElement('div');
   card.className = 'card';
-  card.innerHTML = '<div class="thumb"><img src="' + url + '" alt=""></div>' +
+  card.innerHTML = '<div class="thumb"><img src="' + url + '" alt="">' + seqBadge(index) + '</div>' +
     '<div class="meta"><div class="p">' + escapeHtml(prompt) + '</div><div>' + size + ' · ' + quality + '</div></div>';
   $('gallery').prepend(card);
 }
@@ -1504,9 +1520,7 @@ function renderStoredMessages(msgs, imageById){
     (m.imageIds || []).forEach(function(id){
       var img = imageById[id];
       if (!img) return;
-      addMsg('imgmsg',
-        '<div class="imgs"><img src="' + img.url + '" alt="" data-image-cap="' +
-        escapeHtml(img.prompt + ' · ' + img.size + ' · ' + img.quality + ' · ' + img.model) + '"></div>');
+      addMsg('imgmsg', imgMsgHtml(img));
     });
   });
   updateCount();
@@ -1524,7 +1538,7 @@ function loadHistoryFromServer(){
     imageHistory.forEach(function(img){ imageById[img.id] = img; });
     renderStoredMessages(res[0].messages || [], imageById);
     $('gallery').innerHTML = '';
-    imageHistory.slice().reverse().forEach(function(img){ prependGalleryCard(img.prompt, img.url, img.size, img.quality); });
+    imageHistory.slice().reverse().forEach(function(img){ prependGalleryCard(img.prompt, img.url, img.size, img.quality, img.index); });
     if (imageHistory.length) $('empty-state').style.display = 'none';
   }).catch(function(err){ console.warn('加载历史失败', err); });
 }
