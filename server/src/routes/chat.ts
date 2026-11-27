@@ -47,6 +47,14 @@ export async function chatRoutes(app: FastifyInstance) {
     // 会话落库（首次自动创建标题）；即使后续调用失败，会话本身也保留
     storage.ensureConversation(conversationId, parsed.data.message);
 
+    // 附件大小记日志：粘贴大图导致失败时能在控制台一眼看到量级
+    if (parsed.data.attachment) {
+      request.log.info(
+        { conversationId, attachmentBytes: parsed.data.attachment.data.length, name: parsed.data.attachment.name },
+        'chat 请求携带附件',
+      );
+    }
+
     // 上传原图先落盘到会话 sources/ 目录，拿到 id 后写入消息，历史里即可还原图片
     let sourceImageId: string | null = null;
     if (parsed.data.attachment) {

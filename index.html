@@ -502,11 +502,15 @@
   .set-field:last-child { margin-bottom: 0; }
   .set-field .f-label { font-size: 12px; color: var(--foreground); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
   .set-field .f-label .hint { font-size: 11px; color: var(--muted-foreground); }
-  .set-field input[type="text"], .set-field input[type="password"], .set-field select, .set-field textarea {
+  .set-field input[type="text"], .set-field input[type="password"], .set-field input[type="number"], .set-field select, .set-field textarea {
     width: 100%; border: 1px solid var(--input); border-radius: 9px; padding: 9px 11px; font-size: 12.5px;
     font-family: inherit; color: var(--foreground); background: var(--card); outline: none;
     transition: border-color .18s, box-shadow .18s;
   }
+  /* 去掉 number 原生上下箭头，保持极简灰阶风格 */
+  .set-field input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+  .set-field input[type="number"]::-webkit-inner-spin-button,
+  .set-field input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   .set-field textarea { resize: vertical; min-height: 70px; line-height: 1.6; }
   .set-field input:focus, .set-field select:focus, .set-field textarea:focus { border-color: var(--ring); box-shadow: 0 0 0 3px rgba(120, 120, 120, .12); }
   .set-field .mono { font-family: var(--mono); }
@@ -1491,7 +1495,12 @@ async function agentRespond(text, uploadSnapshot, slash){
     if (isActive()) {
       typing.remove();
       if (statusMsg) statusMsg.remove();
-      addMsg('bot', '请求失败：' + ((err && err.message) || String(err)));
+      var errMsg = (err && err.message) || String(err);
+      // Failed to fetch = 连接层失败（服务未运行/进程崩溃/请求体超限被重置连接），给出可操作的排查方向
+      if (err && err.name === 'TypeError' && /fetch|network/i.test(errMsg)) {
+        errMsg = '连接中断（' + errMsg + '）：请求未到达后端或连接被重置。请确认后端服务仍在运行；若刚粘贴了大图，附件会自动压缩后可重试，仍失败请查看后端控制台日志。';
+      }
+      addMsg('bot', '请求失败：' + errMsg);
     }
   } finally {
     delete localStreams[taskConvId];
@@ -1556,6 +1565,44 @@ function stopTaskReplay(convId){
 }
 
 /* ================= 附件（上传待编辑图片） ================= */
+/** 估算 dataURL 原始字节数（base64 解码后） */
+function dataUrlBytes(u){
+  var i = u.indexOf(',');
+  var b64 = i >= 0 ? u.slice(i + 1) : u;
+  var pad = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
+  return Math.floor(b64.length * 3 / 4) - pad;
+}
+/**
+ * 附件发送前压缩：剪贴板/外部软件粘贴的图常是未压缩大图，原样上传会超出
+ * 后端 bodyLimit、连接被重置（前端只见 Failed to fetch）。最长边压到 2048
+ * （gpt-image 实际只用到 1024/1536，编辑精度足够）；png/webp 保格式，其余转 jpeg。
+ */
+function compressImageDataUrl(dataURL, mime, cb){
+  try {
+    var img = new Image();
+    img.onload = function(){
+      var MAX = 2048, LIMIT = 8 * 1024 * 1024;
+      var w = img.naturalWidth, h = img.naturalHeight;
+      if (!w || !h) return cb(dataURL, mime);
+      var scale = Math.min(1, MAX / Math.max(w, h));
+      if (scale === 1 && dataUrlBytes(dataURL) < LIMIT) return cb(dataURL, mime); // 小而清晰，直接用原图
+      var canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(w * scale));
+      canvas.height = Math.max(1, Math.round(h * scale));
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      var outMime = (mime === 'image/png' || mime === 'image/webp') ? 'image/png' : 'image/jpeg';
+      var out = canvas.toDataURL(outMime, outMime === 'image/jpeg' ? 0.92 : undefined);
+      // png 重压后仍超大（照片类截图），回退 jpeg 再压一档
+      if (out && dataUrlBytes(out) > LIMIT && outMime === 'image/png') {
+        outMime = 'image/jpeg';
+        out = canvas.toDataURL(outMime, 0.9);
+      }
+      cb(out && out.length > 32 ? out : dataURL, out && out.length > 32 ? outMime : mime);
+    };
+    img.onerror = function(){ cb(dataURL, mime); }; // 解码失败：回退原图，交给后端报错
+    img.src = dataURL;
+  } catch (e) { cb(dataURL, mime); }
+}
 function showAttachChip(upload){
   chatUpload = upload;
   $('attach-thumb').src = upload.dataURL;
@@ -1571,7 +1618,14 @@ function attachFile(file){
   if (!file || !/^image\//.test(file.type || '')) return false;
   var reader = new FileReader();
   reader.onload = function(ev){
-    showAttachChip({ dataURL: ev.target.result, name: file.name || 'pasted-image.png', mimeType: file.type || 'image/png', imageId: null, index: 0 });
+    compressImageDataUrl(ev.target.result, file.type || 'image/png', function(dataURL, mimeType){
+      // 压缩后仍超 24MB 的极端情况：拒绝并明说，避免发出去换来 Failed to fetch
+      if (dataUrlBytes(dataURL) > 24 * 1024 * 1024) {
+        addMsg('status', '图片过大（压缩后仍超过 24MB），请换小一点的图或先自行压缩');
+        return;
+      }
+      showAttachChip({ dataURL: dataURL, name: file.name || 'pasted-image.png', mimeType: mimeType, imageId: null, index: 0 });
+    });
   };
   reader.readAsDataURL(file);
   return true;
