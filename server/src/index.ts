@@ -1,6 +1,10 @@
 import { config } from './config.js';
 import { buildApp } from './app.js';
 import { loadSkills } from './skills/loader.js';
+import { warmupPi } from './agent/pi-loader.js';
+
+// Pi SDK 首次 import 约 5 秒：让它在后台初始化，HTTP 服务不等它，首页可秒开
+warmupPi();
 
 const app = await buildApp();
 

@@ -7,12 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
-import {
-  createAgentSession,
-  SessionManager,
-  DefaultResourceLoader,
-  ModelRuntime,
-} from '@earendil-works/pi-coding-agent';
+import { loadPi } from './pi-loader.js';
 import { getModel } from '@earendil-works/pi-ai/compat';
 import { Type } from 'typebox';
 import { config, isImageConfigured } from '../config.js';
@@ -138,6 +133,8 @@ function saveAndEmit(images: string[], opts: {
 }
 
 export async function runAgent(req: ChatRequest, skills: SkillPreset[], emit: Emit): Promise<void> {
+  // 只在真正要跑 Agent 时加载 Pi SDK（启动时已后台预热，多数情况这里瞬时返回）
+  const pi = await loadPi();
   const conversationId = req.conversationId;
   const { message, overrides: skillOverrides } = expandSkill(req, skills);
 
@@ -173,7 +170,7 @@ export async function runAgent(req: ChatRequest, skills: SkillPreset[], emit: Em
   // 模型运行时：始终写一份包含当前对话模型的 models.json，
   // 这样自由填写的模型名（含官方端点上的新模型）也能被 Pi 识别
   const modelsPath = writeTempModelsConfig(config.chatBaseUrl, config.chatModel, config.chatVision);
-  const modelRuntime = await ModelRuntime.create({ modelsPath });
+  const modelRuntime = await pi.ModelRuntime.create({ modelsPath });
   await modelRuntime.setRuntimeApiKey('openai', config.chatApiKey);
   let model = modelRuntime.getModel('openai', config.chatModel);
   if (!model) model = getModel('openai', config.chatModel as any) ?? undefined;
@@ -188,7 +185,7 @@ export async function runAgent(req: ChatRequest, skills: SkillPreset[], emit: Em
   // 用户本机装的扩展会在这里被加载并可能报错。本项目只用项目内 server/skills 与内置文件工具。
   const isolatedAgentDir = path.join(process.cwd(), 'server', 'data', 'pi-agent');
   fs.mkdirSync(isolatedAgentDir, { recursive: true });
-  const resourceLoader = new DefaultResourceLoader({
+  const resourceLoader = new pi.DefaultResourceLoader({
     cwd: process.cwd(),
     agentDir: isolatedAgentDir,
     systemPromptOverride: () => systemPrompt,
@@ -201,9 +198,9 @@ export async function runAgent(req: ChatRequest, skills: SkillPreset[], emit: Em
   });
   await resourceLoader.reload();
 
-  const sessionManager = SessionManager.inMemory();
+  const sessionManager = pi.SessionManager.inMemory();
 
-  const { session } = await createAgentSession({
+  const { session } = await pi.createAgentSession({
     model,
     modelRuntime,
     resourceLoader,
