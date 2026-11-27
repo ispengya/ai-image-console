@@ -1489,7 +1489,6 @@ async function agentRespond(text, uploadSnapshot, slash){
       if (botTextMsg && botText.trim()) botTextMsg.innerHTML = renderMarkdown(botText);
       if (thinkMsg) thinkMsg.classList.add('done');
       if (botText) convMessages.push({ role: 'assistant', content: botText });
-      if (uploadSnapshot) clearAttach();
     }
   } catch (err) {
     if (isActive()) {
@@ -1723,6 +1722,9 @@ function sendChat(){
   var html = escapeHtml(v);
   if (uploadSnapshot) html += '<img class="u-img" src="' + uploadSnapshot.dataURL + '" alt="">';
   addMsg('user', html);
+  // 附件是发送框的草稿：快照已交给 agentRespond，点击发送即清空。
+  // 不能等任务结束再清——失败/切会话会残留，且会误删运行期间新粘贴的图。
+  clearAttach();
   agentRespond(v, uploadSnapshot, slash);
 }
 

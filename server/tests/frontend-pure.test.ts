@@ -33,6 +33,16 @@ const SKILLS = [
 ];
 const { escapeHtml, renderMarkdown, parseSlash, dataUrlBytes } = factory(SKILLS);
 
+test('附件草稿在点击发送时立即清空，任务结束不得再清（否则会误删新粘贴的图）', () => {
+  const send = extractFn(html, 'sendChat');
+  const respond = extractFn(html, 'agentRespond');
+  const clearAt = send.indexOf('clearAttach();');
+  const requestAt = send.indexOf('agentRespond(');
+  assert.notEqual(clearAt, -1, 'sendChat 必须清空附件草稿');
+  assert.ok(clearAt < requestAt, '清空必须发生在发起请求前');
+  assert.ok(!respond.includes('clearAttach()'), 'agentRespond 结束时不得再次清空附件');
+});
+
 test('dataUrlBytes：正确估算 base64 解码后字节数（附件体积门禁依赖它）', () => {
   assert.equal(dataUrlBytes('data:image/png;base64,'), 0);
   assert.equal(dataUrlBytes('data:image/png;base64,aGk='), 2); // "hi"
