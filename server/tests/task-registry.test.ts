@@ -8,15 +8,20 @@ import {
   startTask, endTask, recordTaskEvent, listRunningTasks, getTaskEvents,
 } from '../src/services/task-registry.js';
 
-test('startTask 后出现在运行列表，重复 start 会重置事件缓存', () => {
-  startTask('conv-a');
+test('同一会话运行中的重复 startTask 被拒绝，事件缓存不被覆盖；结束后才能开新一轮', () => {
+  assert.equal(startTask('conv-a'), true);
   recordTaskEvent('conv-a', { type: 'status', text: 'x' });
   assert.equal(listRunningTasks().some((t) => t.conversationId === 'conv-a'), true);
 
-  startTask('conv-a'); // 同一会话再次开始 = 新一轮
+  assert.equal(startTask('conv-a'), false); // 并发请求必须被挡住
   const snap = getTaskEvents('conv-a', 0);
-  assert.equal(snap?.events.length, 0);
+  assert.equal(snap?.events.length, 1);
+  assert.equal(snap?.events[0].event.type, 'status');
   assert.equal(snap?.done, false);
+
+  endTask('conv-a');
+  assert.equal(startTask('conv-a'), true); // 结束后允许新一轮
+  endTask('conv-a');
 });
 
 test('recordTaskEvent 顺序编号，getTaskEvents 支持增量拉取', () => {

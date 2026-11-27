@@ -97,7 +97,12 @@ export async function chatRoutes(app: FastifyInstance) {
     };
 
     // 先注册任务再发第一条事件，确保刷新回放能拿到完整事件序列（含"请求已接收"）
-    startTask(conversationId);
+    // 同会话已有任务在跑时明确拒绝，不让两条 SSE 流写同一份事件缓存、互相覆盖结束标记
+    if (!startTask(conversationId)) {
+      reply.raw.write(`event: error\ndata: ${JSON.stringify({ type: 'error', code: 'TASK_ALREADY_RUNNING', message: '当前会话有任务进行中，请等它完成后再发送。' })}\n\n`);
+      reply.raw.end();
+      return;
+    }
     emit({ type: 'status', text: '请求已接收' });
     try {
       if (!isChatConfigured()) {

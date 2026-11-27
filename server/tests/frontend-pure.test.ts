@@ -33,6 +33,16 @@ const SKILLS = [
 ];
 const { escapeHtml, renderMarkdown, parseSlash, dataUrlBytes } = factory(SKILLS);
 
+test('sendChat 忙态拦截早于清空输入与附件（Enter 键绕过按钮 disabled）', () => {
+  const send = extractFn(html, 'sendChat');
+  const guard = send.indexOf('busyConvs[currentConvId]');
+  const clearInput = send.indexOf("$('chat-input').value = ''");
+  const clearAttachment = send.indexOf('clearAttach();');
+  assert.notEqual(guard, -1, 'sendChat 必须检查会话忙态');
+  assert.ok(guard < clearInput, '忙态拦截必须早于清空输入');
+  assert.ok(guard < clearAttachment, '忙态拦截必须早于清空附件');
+});
+
 test('附件草稿在点击发送时立即清空，任务结束不得再清（否则会误删新粘贴的图）', () => {
   const send = extractFn(html, 'sendChat');
   const respond = extractFn(html, 'agentRespond');

@@ -1712,6 +1712,16 @@ $('chat-input').addEventListener('keydown', function(e){
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
 });
 function sendChat(){
+  // 运行中再发会造成"用户消息已上屏但 agentRespond 直接返回"的幽灵消息。
+  // 按钮 disabled 挡不住输入框的 Enter 键，所以在发送入口统一拦截，并保留输入与附件。
+  if (busyConvs[currentConvId]) {
+    var now = Date.now();
+    if (!sendChat.lastBusyWarnAt || now - sendChat.lastBusyWarnAt > 1500) {
+      sendChat.lastBusyWarnAt = now;
+      addMsg('status', '当前会话有任务进行中，请等它完成后再发送（输入内容和图片已保留）。');
+    }
+    return;
+  }
   var v = $('chat-input').value.trim();
   if (!v && !chatUpload) return;
   if (!v) v = '编辑这张图片';

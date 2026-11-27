@@ -17,8 +17,12 @@ const tasks = new Map<string, TaskState>();
 /** 任务结束后保留事件缓存的时间，供刷新后回放；超时清理避免内存无限增长 */
 const KEEP_MS = 10 * 60 * 1000;
 
-export function startTask(conversationId: string): void {
+/** 同一会话只允许一个运行中的任务（多标签页/直调 API 会撞车）；成功注册返回 true */
+export function startTask(conversationId: string): boolean {
+  const existing = tasks.get(conversationId);
+  if (existing && !existing.done) return false;
   tasks.set(conversationId, { conversationId, startedAt: Date.now(), events: [], done: false });
+  return true;
 }
 
 /** 记录一条 SSE 事件（chat.ts 的 emit 统一调用） */
