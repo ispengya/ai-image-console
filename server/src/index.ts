@@ -1,44 +1,16 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import Fastify from 'fastify';
-import cors from '@fastify/cors';
-import fastifyStatic from '@fastify/static';
 import { config } from './config.js';
-import { chatRoutes } from './routes/chat.js';
-import { configRoutes } from './routes/config.js';
-import { skillRoutes } from './routes/skills.js';
-import { imageRoutes } from './routes/images.js';
-import { conversationRoutes } from './routes/conversations.js';
-import { taskRoutes } from './routes/tasks.js';
+import { buildApp } from './app.js';
 import { loadSkills } from './skills/loader.js';
 
-const app = Fastify({ logger: true, bodyLimit: 30 * 1024 * 1024 });
+const app = await buildApp();
 
-await app.register(cors, { origin: config.corsOrigin === '*' ? true : config.corsOrigin.split(',') });
-await app.register(chatRoutes);
-await app.register(configRoutes);
-await app.register(skillRoutes);
-await app.register(imageRoutes);
-await app.register(conversationRoutes);
-await app.register(taskRoutes);
-
-// 首页显式返回 index.html（避免把整个项目根目录暴露成静态文件）
-const frontendDir = path.resolve(import.meta.dirname, '..', '..');
-const indexHtmlPath = path.join(frontendDir, 'index.html');
-app.get('/', (_req, reply) => {
-  return reply.type('text/html; charset=utf-8').send(fs.createReadStream(indexHtmlPath));
+// 进程级兜底：本地工具宁可记日志也不能静默崩掉——进程一死，
+// 前端所有在途请求只会显示 Failed to fetch，完全无法定位
+process.on('unhandledRejection', (reason) => {
+  app.log.error(reason, 'unhandledRejection（未处理的 Promise 拒绝）');
 });
-
-// 静态资源仅托管 assets/ 目录（logo/favicon 等），不放行 server/data 等敏感目录
-await app.register(fastifyStatic, {
-  root: path.join(frontendDir, 'assets'),
-  prefix: '/assets/',
-  decorateReply: false,
-});
-
-app.setErrorHandler((err, _req, reply) => {
-  app.log.error(err);
-  reply.code(500).send({ error: 'INTERNAL_ERROR', message: err instanceof Error ? err.message : String(err) });
+process.on('uncaughtException', (err) => {
+  app.log.error(err, 'uncaughtException（未捕获异常）');
 });
 
 const skills = loadSkills();

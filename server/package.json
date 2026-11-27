@@ -7,7 +7,8 @@
     "dev": "tsx watch src/index.ts",
     "start": "node --experimental-sqlite dist/index.js",
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-sqlite --import tsx --test \"tests/*.test.ts\""
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^1.6.0",
