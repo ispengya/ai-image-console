@@ -42,6 +42,32 @@ function line(m: Msg): string {
   return `${who}：${text}`;
 }
 
+export interface FoldPlan {
+  /** 保留的最近原文件数（下限 2） */
+  keep: number;
+  /** 每批增量折叠的触发余量（下限 2） */
+  batch: number;
+  /** 是否达到折叠触发条件 */
+  shouldFold: boolean;
+  /** 本轮实际折叠条数；未触发或未压缩队列不足 keep 时为 0 */
+  foldCount: number;
+}
+
+/** 折叠判定（纯函数）：条数超过 keep+batch 或字符超过 maxChars 才折叠，且只折叠除最近 keep 条外的部分 */
+export function planFold(input: {
+  uncoveredLen: number;
+  uncoveredChars: number;
+  threshold: number;
+  keepRecent: number;
+  maxChars: number;
+}): FoldPlan {
+  const keep = Math.max(2, input.keepRecent);
+  const batch = Math.max(2, input.threshold - keep);
+  const shouldFold = input.uncoveredLen > keep + batch || input.uncoveredChars > input.maxChars;
+  const foldCount = shouldFold && input.uncoveredLen > keep ? input.uncoveredLen - keep : 0;
+  return { keep, batch, shouldFold, foldCount };
+}
+
 /**
  * 准备上下文：返回「历史摘要 + 最近原文」。
  * 触发条件：待折叠队列长度超过 (threshold - keepRecent)，或字符数超过 maxChars。
@@ -68,12 +94,15 @@ export async function prepareContext(
   const stored = storage.getSummary(conversationId);
   const covered = stored?.coveredCount ?? 0;
   const uncovered = tail.slice(covered);
-  const keep = Math.max(2, config.contextKeepRecent);
-  const batch = Math.max(2, config.contextThreshold - keep);
-  const uncoveredChars = charCount(uncovered);
-  const shouldFold = uncovered.length > keep + batch || uncoveredChars > config.contextMaxChars;
+  const plan = planFold({
+    uncoveredLen: uncovered.length,
+    uncoveredChars: charCount(uncovered),
+    threshold: config.contextThreshold,
+    keepRecent: config.contextKeepRecent,
+    maxChars: config.contextMaxChars,
+  });
 
-  if (!shouldFold || uncovered.length <= keep) {
+  if (plan.foldCount === 0) {
     const recent = tail.slice(covered).slice(-recentLimit);
     return {
       summary: stored?.summary ?? '',
@@ -85,7 +114,7 @@ export async function prepareContext(
   }
 
   // 折叠除最近 keep 条外的未摘要消息；旧摘要一起送模型做增量合并
-  const foldCount = uncovered.length - keep;
+  const foldCount = plan.foldCount;
   const toFold = uncovered.slice(0, foldCount);
   const beforeChars = charCount(tail);
   emit({ type: 'status', text: `正在压缩历史上下文（${toFold.length} 条）…` });
